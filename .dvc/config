@@ -1,0 +1,4 @@
+[core]
+    no_scm = True
+[cache]
+    type = symlink

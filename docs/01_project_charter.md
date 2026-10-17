@@ -50,7 +50,7 @@ FakeCatcher approach (Ciftci, Demir & Yin, 2020; productized by Intel, 2022).
 - Solo builder, laptop CPU for Phases 1–2 (GPU optional, Phase 3).
 - Free / open-source tooling only.
 - Datasets obtained via academic request forms; budget time for approvals.
-- Disk: ~50 GB free (FF++ c23 subset + UBFC-rPPG + feature caches).
+- Disk: ~120 GB free (UBFC-rPPG uncompressed ≈ 60 GB + FF++ c23 ≈ 40 GB + mirrors/double-staging during download + feature caches).
 - Time: the brief's own estimate — a weekend for the heart-rate reader, a few
   evenings per later phase, 1–2 weeks for the CNN scale-up.
 

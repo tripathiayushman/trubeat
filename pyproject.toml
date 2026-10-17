@@ -19,6 +19,10 @@ dependencies = [
 serving = ["fastapi", "uvicorn[standard]", "gradio"]
 tracking = ["mlflow", "dvc"]  # local file store / dataset versioning
 # "torch",             # Phase 3 — install per https://pytorch.org for your platform
+# Reference-harness runtime for third_party/rppg-toolbox cross-checks only
+# (NOT a pipeline dependency). Must stay <0.23: scikit-image 0.23+ forces
+# numpy>=2, which violates the numpy<2.0 pin above (learned 2026-10-18).
+toolbox_ref = ["scikit-image>=0.22,<0.23"]
 
 [project.scripts]
 trubeat = "trubeat.cli:main"

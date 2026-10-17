@@ -16,3 +16,7 @@ reports/
 
 # reference clone, not a dependency (see third_party/README.md)
 third_party/rppg-toolbox/
+
+# dvc local runtime
+.dvc/cache/
+.dvc/tmp/

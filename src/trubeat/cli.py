@@ -115,7 +115,12 @@ def cmd_predict(args):
 def cmd_eval(args):
     config = load_config(args.config)
     ds = args.dataset
-    manifest_path = ds if Path(ds).exists() else f"data/manifests/{ds}.csv"
+    if Path(ds).exists():
+        manifest_path = ds
+    elif Path(ds).is_absolute():
+        sys.exit(f"manifest not found: {ds}")
+    else:
+        manifest_path = f"data/manifests/{ds}.csv"
     manifest = pd.read_csv(manifest_path)
     if args.task == "hr":
         report = evalmod.evaluate_hr(manifest, config)

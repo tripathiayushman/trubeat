@@ -106,6 +106,35 @@ def test_evaluate_hr_metrics(monkeypatch):
     assert rep.per_subject["abs_err"].tolist() == pytest.approx([2.0, 2.0])
 
 
+def test_evaluate_hr_raises_noface_on_nan_bpm(monkeypatch):
+    """Never return a silent NaN metric: a row whose face was never tracked
+    (all-NaN ppg → NaN bpm) must raise E_NO_FACE, not poison MAE."""
+    from trubeat.errors import NoFace
+
+    manifest = _manifest(
+        [{"path": "s1.mp4", "subject_id": "s1"}]
+    )
+    monkeypatch.setattr("trubeat.eval._load_gt_hr", lambda row: 72.0)
+    nan_res = HRResult(
+        bpm=float("nan"), confidence=0.0,
+        spectrum=np.array([]), freqs=np.array([]),
+    )
+    with patch("trubeat.eval.ingest") as m_ing, patch(
+        "trubeat.eval.face"
+    ) as m_face, patch("trubeat.eval.roi") as m_roi, patch(
+        "trubeat.eval.signal"
+    ) as m_sig, patch("trubeat.eval.hr") as m_hr:
+        m_ing.open_video.return_value = MagicMock(fps=30.0)
+        m_face.track_landmarks.return_value = (
+            np.zeros((300, 478, 2)), np.zeros(300, dtype=bool),
+        )
+        m_roi.extract_roi_means.return_value = np.full((300, 3, 3), np.nan)
+        m_sig.extract_ppg.return_value = np.full((300, 3), np.nan)
+        m_hr.estimate_hr.return_value = nan_res
+        with pytest.raises(NoFace):
+            evaluate_hr(manifest, {})
+
+
 def test_load_gt_hr_ubfc_format(tmp_path):
     gt = tmp_path / "ground_truth.txt"
     gt.write_text(

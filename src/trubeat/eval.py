@@ -11,6 +11,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 from . import face, hr, ingest, roi, signal
+from .errors import NoFace
 from .model import _to_label, predict_video
 
 
@@ -118,6 +119,14 @@ def evaluate_hr(manifest: pd.DataFrame, config: dict) -> HRReport:
     for i, (_, row) in enumerate(manifest.iterrows()):
         ppg, fps = _extract_ppg(str(row["path"]), config)
         res = hr.estimate_hr(ppg[:, 0], fps, band=band)
+        if not np.isfinite(res.bpm):
+            # No valid pulse signal (face never tracked / empty ROI): a silent
+            # NaN would poison MAE — fail loudly instead (AGENTS.md §5).
+            who = row.get("subject_id", row.get("video_id", f"row{i}"))
+            raise NoFace(
+                f"no pulse signal for {who} (bpm is NaN — face never tracked "
+                f"or all-NaN ROI traces)"
+            )
         est.append(float(res.bpm))
         gt.append(float(_load_gt_hr(row)))
         subjects.append(row.get("subject_id", row.get("video_id", f"row{i}")))

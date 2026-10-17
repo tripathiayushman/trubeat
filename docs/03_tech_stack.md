@@ -64,7 +64,7 @@ uv pip install "numpy<2.0" opencv-python==4.9.0.80 mediapipe==0.10.21 \
 
 ## Hardware
 
-- Phases 1–2: any 4-core laptop, 16 GB RAM recommended, ~50 GB free disk.
+- Phases 1–2: any 4-core laptop, 16 GB RAM recommended, ~120 GB free disk (UBFC alone is ~60 GB uncompressed).
 - Phase 3 (CNN training): a CUDA GPU helps; CPU training on the FF++ c23
   subset is possible but slow — budget overnight runs.
 - Optional: any webcam for live self-tests against a finger pulse oximeter or

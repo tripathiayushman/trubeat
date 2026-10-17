@@ -41,11 +41,30 @@ python faceforensics_download_v4.py ff_data --dataset Deepfakes --compression c2
 
 - **Official page:** https://sites.google.com/view/ybenezeth/ubfcrppg
   (cited in the rPPG literature as the dataset page; Drive folder behind it)
-- No request form — direct download. Drive **rate-limits** the large files: if a
-  download throttles, wait and retry at off-peak hours rather than hammering it;
-  Kaggle mirrors exist as a fallback.
-- Tiny (~a few GB) and uncompressed — this is the fastest win and unblocks all
-  of Phase 1.
+- No request form — direct download. Drive folder behind it. Drive
+  **rate-limits** the videos: throttle the first pull like this (2026-10-18) —
+  every `vid.avi` quota-locked, while all `ground_truth.txt`
+  files still downloaded. The working route was the ungated HuggingFace
+  mirror `thachha901/UBFC` (byte-identical to the official LFS blobs):
+
+  ```bash
+  uv pip install "huggingface_hub[hf_transfer]"   # or your package mgr
+  huggingface_hub snapshot_download:
+      snapshot_download('thachha901/UBFC', repo_type='dataset',
+                        local_dir='data/raw/ubfc_mirror',
+                        allow_patterns=['UBFC/subject*'])
+  # then flatten (whole trees, per subject; no clobber of already-downloaded
+  # ground truths from the Drive pull):
+  for d in data/raw/ubfc_mirror/UBFC/subject*; do
+      cp -rn "$d" data/raw/ubfc_rppg/
+  done
+  ```
+
+  If the mirror disappears, re-request the originals at off-peak hours
+  rather than hammering Drive.
+- ~60 GB when uncompressed (42 subjects × ~1.4 GB `vid.avi` each) — budget the
+  download + disk accordingly; re-encoded mirror copies (a few GB) compress out
+  pulse-relevant detail, use the original bytes.
 - License note already in `05_data_strategy.md`: subjects **21 and 27** may not
   appear in any publication or presentation.
 
