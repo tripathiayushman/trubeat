@@ -72,8 +72,10 @@ is the task list — take the topmost unfinished item, finish it, commit, repeat
 
 - One commit per finished backlog item. Conventional messages:
   `feat:`, `fix:`, `test:`, `docs:`, `chore:`.
-- Work on your branch. Open a PR for human review at each phase gate —
-  never push to `main` yourself.
+- 2026-10-18 (human-approved): push directly to `origin/main` (= upstream
+  `tripathiayushman/trubeat`). No fork round-trip, no PRs for routine work.
+  Conventional, small, honest commits — one per finished task. Phase-gate
+  reports still go through human review (§9) before the next phase starts.
 
 ## 9. Human gates (only the human does these — prepare each as a single action)
 
