@@ -20,10 +20,11 @@ Follow `docs/09_data_access_starter.md` "tonight's checklist":
 `data/raw/ubfc/` ← 42 `subjectXX/` dirs. Then tell the agent — it runs the
 G1 heart-rate gate (target: MAE ≤ 5 bpm).
 
-## B4 — ROI placement glance (2 min)
-Open `reports/roi_placement.png` (generated locally, gitignored). The agent
-researched the forehead/cheek landmark indices; this plot is the visual
-cross-check before real-data runs. Reply "looks right" or "fix X".
+## B4 — ROI placement glance (2 min) — **PASSED 2026-10-18**
+Open `reports/roi_check_subject01.png`, `reports/roi_check_subject15.png`,
+`reports/roi_check_subject38.png` (generated locally, gitignored). Forehead +
+both cheeks anatomically correct on all three real subjects; bangs (subject1)
+and glasses (subject15) noted as dataset characteristics, not bugs.
 
 ## B5 — FaceForensics++ c23 file list (10 min, when access arrives)
 Download only the `c23` list from the official script (see `docs/09`). Tell
