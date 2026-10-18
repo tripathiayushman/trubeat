@@ -107,27 +107,45 @@ def _extract_ppg(path: str, config: dict) -> tuple[np.ndarray, float]:
     return ppg, stream.fps
 
 
+def _roi_consensus_bpm(ppg: np.ndarray, fps: float, band: tuple[float, float]) -> tuple[float, float]:
+    """Estimate HR from all ROIs via median consensus (FakeCatcher cross-region check).
+
+    Returns (median_bpm, median_confidence). If all ROIs fail, returns (nan, 0).
+    """
+    n_rois = ppg.shape[1]
+    bpm_vals = []
+    conf_vals = []
+    for r in range(n_rois):
+        res = hr.estimate_hr(ppg[:, r], fps, band=band)
+        if np.isfinite(res.bpm):
+            bpm_vals.append(res.bpm)
+            conf_vals.append(res.confidence)
+    if not bpm_vals:
+        return float("nan"), 0.0
+    # Median is robust to one bad ROI; confidence = median of individual confidences
+    return float(np.median(bpm_vals)), float(np.median(conf_vals))
+
+
 def evaluate_hr(manifest: pd.DataFrame, config: dict) -> HRReport:
     """Score HR estimates vs ground truth. Gate G1: MAE ≤ 5 bpm.
 
-    Per row: extract the ppg, run estimate_hr on the forehead ROI
-    (column 0), compare against _load_gt_hr. Returns MAE / RMSE /
-    Pearson r plus a per-subject table.
+    Per row: extract the ppg, run estimate_hr on ALL ROIs (forehead + cheeks),
+    take the median (FakeCatcher cross-region consistency), compare against
+    _load_gt_hr. Returns MAE / RMSE / Pearson r plus a per-subject table.
     """
     band = tuple(config.get("band", (0.7, 3.0)))
     est, gt, subjects = [], [], []
     for i, (_, row) in enumerate(manifest.iterrows()):
         ppg, fps = _extract_ppg(str(row["path"]), config)
-        res = hr.estimate_hr(ppg[:, 0], fps, band=band)
-        if not np.isfinite(res.bpm):
-            # No valid pulse signal (face never tracked / empty ROI): a silent
-            # NaN would poison MAE — fail loudly instead (AGENTS.md §5).
+        bpm, conf = _roi_consensus_bpm(ppg, fps, band)
+        if not np.isfinite(bpm):
+            # No valid pulse signal on any ROI: fail loudly (AGENTS.md §5).
             who = row.get("subject_id", row.get("video_id", f"row{i}"))
             raise NoFace(
                 f"no pulse signal for {who} (bpm is NaN — face never tracked "
                 f"or all-NaN ROI traces)"
             )
-        est.append(float(res.bpm))
+        est.append(bpm)
         gt.append(float(_load_gt_hr(row)))
         subjects.append(row.get("subject_id", row.get("video_id", f"row{i}")))
     est_a = np.asarray(est)
