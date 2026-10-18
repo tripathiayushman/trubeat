@@ -137,7 +137,7 @@ def evaluate_hr(manifest: pd.DataFrame, config: dict) -> HRReport:
     est, gt, subjects = [], [], []
     for i, (_, row) in enumerate(manifest.iterrows()):
         ppg, fps = _extract_ppg(str(row["path"]), config)
-        bpm, conf = _roi_consensus_bpm(ppg, fps, band)
+        bpm, _conf = _roi_consensus_bpm(ppg, fps, band)
         if not np.isfinite(bpm):
             # No valid pulse signal on any ROI: fail loudly (AGENTS.md §5).
             who = row.get("subject_id", row.get("video_id", f"row{i}"))
