@@ -46,21 +46,46 @@ def open_video(path: str) -> VideoStream:
         if not np.isfinite(fps) or fps <= 0:
             # Without frame-rate metadata no bpm math is possible.
             raise UnreadableVideo(f"missing frame-rate metadata: {path}")
-        frames_bgr: list[np.ndarray] = []
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            frames_bgr.append(frame)
-        if not frames_bgr:
+        # Stream frames into ONE preallocated RGB buffer. list+stack+flip
+        # peaked at ~3x the video size on 640x480x1800-frame raw AVIs
+        # (~5 GB, OOM-killed rc=137 on a 7 GB laptop). Fallback keeps the
+        # list path for containers that report no frame count.
+        n_meta = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        first_ok, first = cap.read()
+        if not first_ok:
             raise UnreadableVideo(f"no decodable frames: {path}")
+        h, w = first.shape[0], first.shape[1]
+        frames = None
+        if n_meta > 0 and fps > 0:
+            frames = np.empty((n_meta, h, w, 3), dtype=np.uint8)
+            frames[0] = first[:, :, ::-1]
+            i = 1
+            while i < n_meta:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                frames[i] = frame[:, :, ::-1]
+                i += 1
+            n = i
+            if n < n_meta:  # metadata overcounted — trim the buffer
+                frames = np.ascontiguousarray(frames[:n])
+        else:
+            frames = None
+        if frames is None:
+            frames_bgr = [first]
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                frames_bgr.append(frame)
+            bgr = np.stack(frames_bgr, axis=0)  # (T, H, W, 3) BGR uint8
+            del frames_bgr
+            frames = np.ascontiguousarray(bgr[:, :, :, ::-1])  # -> RGB
+            n = int(frames.shape[0])
     finally:
         cap.release()
     if fps < MIN_FPS:
         raise LowFps(f"fps={fps:.2f} < MIN_FPS={MIN_FPS}")
-    bgr = np.stack(frames_bgr, axis=0)  # (T, H, W, 3) BGR uint8
-    frames = np.ascontiguousarray(bgr[:, :, :, ::-1])  # -> RGB
-    n, h, w = frames.shape[0], frames.shape[1], frames.shape[2]
     duration_s = n / fps
     if duration_s < MIN_DURATION_S:
         raise ShortVideo(f"duration={duration_s:.2f}s < MIN_DURATION_S={MIN_DURATION_S}s")
