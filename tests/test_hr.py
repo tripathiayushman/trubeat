@@ -91,3 +91,25 @@ def test_video_level_bpm_coherent(tmp_path, method):
     res = estimate_hr(sig, fps)
     # mp4v is lossy: allow ±4 bpm at video level.
     assert abs(res.bpm - 72.0) <= 4.0, f"{method}: {res.bpm:.2f} bpm"
+
+
+def test_estimate_hr_harmonic_picker_no_halving():
+    """
+    Regression test for harmonic-picker: a signal with a true peak at f
+    and a sub-harmonic artifact at f/2 (power > 25% of fundamental)
+    must NOT be halved. Previously the picker preferred f/2 when
+    fundamental was merely > 25% of harmonic power; now it only prefers
+    f/2 when fundamental DOMINATES (power > harmonic).
+    """
+    # Build a synthetic signal: fundamental at 1.67 Hz (100 bpm) with
+    # a sub-harmonic at 0.83 Hz (50 bpm) at 40% power.
+    FPS = 30.0
+    T = 30 * FPS  # 30 s
+    t = np.arange(T) / FPS
+    f0 = 1.6667  # 100 bpm
+    f1 = f0 / 2  # 50 bpm
+    s = np.sin(2 * np.pi * f0 * t) + 0.4 * np.sin(2 * np.pi * f1 * t)
+    res = estimate_hr(s, FPS, band=(0.7, 3.0))
+    # Must pick the true fundamental (~100 bpm), not the sub-harmonic (~50 bpm)
+    assert abs(res.bpm - 100.0) <= 1.0, f"harmonic halving: got {res.bpm:.1f} bpm"
+    assert res.confidence > 0.2

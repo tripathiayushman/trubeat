@@ -92,12 +92,19 @@ def estimate_hr(
                     harmonic_of = fj
                     break
             if harmonic_of is None:
+                # No lower-frequency match -> this is a fundamental candidate
                 f_peak = float(fk)
                 break
-            # fk is a harmonic; if the fundamental is strong enough, prefer it
-            if peak_powers[np.where(peaks == np.where(f == harmonic_of)[0][0])[0][0]] >= pk * 0.25:
-                f_peak = float(harmonic_of)
+            # fk is a harmonic of harmonic_of. Decide which is the true fundamental:
+            # If the HIGHER frequency (fk) has MORE power than the lower (harmonic_of),
+            # then fk is likely the true fundamental and harmonic_of is a sub-harmonic artifact.
+            # If the LOWER frequency has more power, it's the fundamental and fk is a harmonic.
+            fund_idx = np.where(peaks == np.where(f == harmonic_of)[0][0])[0][0]
+            if pk > peak_powers[fund_idx]:
+                # Higher peak dominates -> it's the true fundamental
+                f_peak = float(fk)
                 break
+            # Lower peak dominates -> fk is a harmonic, keep looking
         if f_peak is None:
             f_peak = float(peak_freqs[order[0]])  # give up, take strongest
 
