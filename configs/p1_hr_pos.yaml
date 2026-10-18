@@ -1,0 +1,7 @@
+# Phase 1 — heart-rate reader
+method: pos          # green → chrom → pos (ADR-02/ADR-03)
+band: [0.7, 3.0]       # Hz = 42–180 bpm
+rois: [forehead, cheek_l, cheek_r]
+window_s: 30.0         # 2 bpm frequency steps for HR reporting
+overlap: 0.5
+seed: 7

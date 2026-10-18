@@ -112,7 +112,8 @@ def _load_ffpp_splits(splits_dir: Path) -> dict[str, set[str]]:
                         if "_" in e:  # "<target>_<source>" → also index by target
                             keys.add(e.split("_")[0])
                     elif isinstance(e, (list, tuple)) and e:
-                        keys.add(str(e[0]))
+                        for x in e:
+                            keys.add(str(x))
                         keys.add("_".join(str(x) for x in e))
                 found[split] = keys
         if found:
