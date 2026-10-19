@@ -8,3 +8,16 @@ frame_height: 480      # cap decoded frame height (memory bound; aspect kept)
 classifier: logreg     # or svm_rbf
 cv_groups: split_group # GroupKFold — never random (R-04)
 seed: 7
+# --- Gate G2 tuning space (searched on TRAIN group-CV; threshold on VAL) ---
+# Longer windows sharpen the inter-ROI coherence estimate, but drop the
+# short clips. Method matters: on c23 the colour-ratio methods (chrom/pos)
+# are near chance because compression destroys the pulse, while the plain
+# green channel still carries a usable spectrum (R-01).
+method_candidates: [green, chrom, pos]
+window_s_candidates: [10.0, 15.0]
+classifier_candidates: [logreg, svm_rbf]
+# null = all consistency features; the second set drops the inter-ROI
+# coherence block, which is a near-constant feature on short clips.
+feature_subset_candidates:
+  - null
+  - [lag0_mean, lag0_std, lag0_min, spec_entropy, peak_sharpness, snr_mean]

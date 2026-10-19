@@ -43,6 +43,16 @@ do not start the next phase until the gate is met or consciously waived.
       videos separately (BBC lesson).
 - **Gate G2:** AUC ≥ 0.70 person-disjoint. Above 0.50 (chance) is the honest
   minimum that says the pulse-consistency signal is real; 0.70 says it's useful.
+  - **Status 2026-10-20: FAILED (honestly recorded).** Test AUC **0.474**
+    (95% bootstrap CI over source videos [0.281, 0.648]) on 56 usable test
+    videos, FPR on real videos 0.75. The diagnosis is measured, not guessed:
+    on c23 the three face regions disagree by ~12 bpm in **both** classes —
+    there is no single pulse to be consistent about (R-01 confirmed), the
+    colour-ratio methods sit at chance while only the raw green channel
+    survives, and the inter-ROI coherence feature was found to be a
+    *constant* (single-Welch-segment bug, since fixed). The test split is
+    also too small to resolve the gate (R-15). Next: mixed compression
+    (ADR-06 / R-01) and a larger test split — see `reports/g2_detector.md`.
 
 ## Phase 3 — FakeCatcher scale (1–2 weeks; the paper's full design)
 

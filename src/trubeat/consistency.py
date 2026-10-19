@@ -5,6 +5,11 @@ from scipy.signal import coherence
 
 _EPS = 1e-12
 
+# Welch segment length for the coherence estimate. Must be well below the
+# window length so more than one segment is averaged (a single segment
+# makes the estimator identically 1.0 — a constant, useless feature).
+COH_NPERSEG = 128
+
 
 def _empty_coherence() -> dict:
     return {
@@ -28,17 +33,23 @@ def coherence_features(ppg_win: np.ndarray, fps: float) -> dict:
 
     Notes:
         - ``coh_mean`` etc. are broadband means: the magnitude-squared
-          coherence (``scipy.signal.coherence``, ``nperseg=min(256, W)``)
-          averaged over all frequency bins, then aggregated over ROI pairs.
+          coherence (``scipy.signal.coherence``) averaged over all frequency
+          bins, then aggregated over ROI pairs.
+        - **The Welch segment length matters.** With ``nperseg == W`` there is
+          a single segment and the estimator degenerates to exactly 1.0 for
+          every pair (verified: 10 s windows read coh_mean = 1.0000 with zero
+          variance on every FF++ video, real and fake alike — a constant
+          feature that carries no information). We therefore use
+          ``nperseg = min(COH_NPERSEG, W // 2)`` so at least two Welch
+          segments are averaged and the estimate can actually vary.
         - Degenerate inputs (e.g. a constant signal, where coherence is
           undefined and scipy returns NaN) are mapped to 0.0 — there is no
           measurable coherence — rather than propagating NaN (AGENTS.md §5).
         - Fewer than 2 ROIs or fewer than 4 samples → all zeros, empty pairs.
-        - Caveat: the estimate averages over ~W/nperseg Welch segments, so
-          very short windows (few segments) yield high-variance, upward-biased
-          coherence that cannot discriminate coherent from incoherent signals
-          (verified empirically: 10 s windows read ~1.0 for both). Prefer
-          ≥30 s windows when coherence must discriminate.
+        - Caveat: few segments still give a high-variance, upward-biased
+          estimate; prefer longer windows when coherence must discriminate.
+          On short clips (FF++ c23 median 16 s) coherence is a weak feature —
+          measure it, do not assume it.
     """
     ppg_win = np.asarray(ppg_win, dtype=float)
     if ppg_win.ndim != 2:
@@ -46,7 +57,8 @@ def coherence_features(ppg_win: np.ndarray, fps: float) -> dict:
     n_samp, n_roi = ppg_win.shape
     if n_samp < 4 or n_roi < 2:
         return _empty_coherence()
-    nperseg = min(256, n_samp)
+    # At least two Welch segments, else the estimator is identically 1.0.
+    nperseg = max(8, min(COH_NPERSEG, n_samp // 2))
     pairs: dict[tuple[int, int], float] = {}
     vals = []
     for i in range(n_roi):
