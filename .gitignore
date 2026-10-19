@@ -20,3 +20,9 @@ third_party/rppg-toolbox/
 # dvc local runtime
 .dvc/cache/
 .dvc/tmp/
+
+# run logs from long jobs (not part of the deliverable)
+logs/
+
+# desktop-environment folder-icon stub
+.directory
