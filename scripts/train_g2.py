@@ -35,7 +35,6 @@ import numpy as np
 import pandas as pd
 
 from trubeat import detector
-from trubeat.detector import DETECTOR_COLUMNS
 
 
 def _cfg_hash(config: dict) -> str:
@@ -188,8 +187,10 @@ def main() -> None:
         return rows[columns], y, g
 
     Xtr, ytr, gtr = _xy(tr, splits["train"])
-    Xva, yva, gva = _xy(va, splits["val"])
-    Xte, yte, gte = _xy(te, splits["test"])
+    # The val/test feature matrices are not needed directly: the video-level
+    # score comes from score_videos(), which fits the windows itself.
+    _xy(va, splits["val"])
+    _xy(te, splits["test"])
 
     pipe, cv_auc, cv_std = detector.fit_with_group_cv(
         Xtr, ytr, gtr, best_cfg["kind"]
@@ -303,10 +304,10 @@ def _write_report(**kw) -> None:
         "",
         "## Setup",
         "",
-        f"- dataset: **FaceForensics++ c23** (200 original + 50x4 manipulations)",
+        "- dataset: **FaceForensics++ c23** (200 original + 50x4 manipulations)",
         f"- manifest: `{kw['manifest_path']}`",
-        f"- split protocol: **official FF++ train/val/test**, grouped by source video",
-        f"  (`split_group`), group-aware CV — no video or its fakes span splits",
+        "- split protocol: **official FF++ train/val/test**, grouped by source video",
+        "  (`split_group`), group-aware CV — no video or its fakes span splits",
         f"- features: cached traces -> windowed consistency features "
         f"({', '.join(kw['columns'])})",
         f"- rPPG method: **{best['method']}** (recomputed from the cached raw "
