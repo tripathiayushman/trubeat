@@ -98,7 +98,9 @@ def _load_gt_hr(row: pd.Series) -> float:
 
 def _extract_ppg(path: str, config: dict) -> tuple[np.ndarray, float]:
     """Shared ingest → face → roi → signal wiring. Returns (ppg (T,R), fps)."""
-    stream = ingest.open_video(path)
+    stream = ingest.open_video(
+        path, frame_height=config.get("frame_height", ingest.DEFAULT_FRAME_HEIGHT)
+    )
     landmarks, valid = face.track_landmarks(stream.frames, stream.fps)
     traces = roi.extract_roi_means(
         stream.frames, landmarks, valid, config.get("roi_defs", roi.ROI_DEFS_P1)

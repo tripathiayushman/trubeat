@@ -64,6 +64,23 @@ raw video → open_video → track_landmarks → extract_roi_means → (T,R,3) t
 - Everything downstream of the cache re-runs in seconds, so method/band/window
   experiments stay cheap.
 - Record per-video QC in the manifest: `face_valid_frac`, `mean_snr`, notes.
+- **Decoded frame height is capped at 480** (aspect preserved, never upscaled).
+  This is a memory bound, not a quality choice: 1920×1080×900 frames is 5.8 GB
+  of `uint8` and gets the process OOM-killed (R-10).
+
+### 6.1 Resolution is a label shortcut in FF++ — normalize it
+
+The FF++ mirror's manipulated sequences are **re-encoded at a different
+resolution than their source original** (measured: 144 of 200 fake/original
+pairs disagree — e.g. source 033 is 854×480 as an original but 640×480 in
+every fake). A detector can therefore score well by reading resolution
+instead of blood-flow physics, and that shortcut will not survive the
+cross-dataset exam.
+
+Mitigation, applied uniformly to every video in the manifest: the decoder
+caps frame height at 480 with the aspect ratio preserved, so all videos
+enter the pipeline at a comparable face scale. Do **not** report an FF++
+number obtained with native-resolution decoding as a physics result.
 
 ## 7. A note on UBFC-rPPG physics
 

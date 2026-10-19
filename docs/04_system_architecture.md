@@ -57,7 +57,11 @@ Single-machine, offline-first. No component calls the network during inference.
 
 1. **Ingest.** `open_video(path)` → frames `uint8 (T,H,W,3)`, plus `fps`
    (from container — never assumed), `n_frames`, duration. Gate: duration ≥ 10 s,
-   fps ≥ 15, else `E_SHORT_VIDEO` / `E_LOW_FPS`.
+   fps ≥ 15, else `E_SHORT_VIDEO` / `E_LOW_FPS`. Videos taller than
+   `frame_height` (default 480) are downscaled with the aspect ratio preserved
+   and never upscaled — a 1920×1080 clip of ~900 frames is 5.8 GB decoded and
+   OOM-kills the process on a small machine. `MAX_DECODED_BYTES` (2.5 GB)
+   raises `E_UNREADABLE` rather than letting the kernel kill the process.
 2. **FaceTracker.** MediaPipe Face Landmarker per frame → `landmarks (T,478,2)`,
    `valid (T,)` bool mask. Lost track → re-detect; if valid < 70% of frames,
    warn `W_UNSTABLE_TRACK`.
@@ -87,7 +91,10 @@ Single-machine, offline-first. No component calls the network during inference.
 
 ```python
 # ingest.py
-def open_video(path: str) -> VideoStream  # frames, fps, n_frames, w, h, duration_s
+def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> VideoStream
+    # frames, fps, n_frames, w, h, duration_s
+    # frame_height caps the decoded frame height (aspect preserved, never
+    # upscaled); None keeps native resolution.
 
 # face.py
 def track_landmarks(frames: np.ndarray, fps: float) -> tuple[np.ndarray, np.ndarray]

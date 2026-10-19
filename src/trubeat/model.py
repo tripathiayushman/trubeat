@@ -86,7 +86,9 @@ def predict_video(path: str, model, config: dict) -> Prediction:
     band = tuple(config.get("band", (0.7, 3.0)))
     method = config.get("method", "pos")
 
-    stream = ingest.open_video(path)
+    stream = ingest.open_video(
+        path, frame_height=config.get("frame_height", ingest.DEFAULT_FRAME_HEIGHT)
+    )
     landmarks, valid = face.track_landmarks(stream.frames, stream.fps)
     if not np.any(valid):
         # No face in any frame: nothing to analyze. Surface the designed

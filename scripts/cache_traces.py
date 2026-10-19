@@ -36,11 +36,14 @@ def hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def cache_key(video_path: Path, roi_defs: dict, method: str) -> str:
+def cache_key(video_path: Path, roi_defs: dict, method: str,
+              frame_height: int | None = None) -> str:
     h = hashlib.sha256()
     h.update(hash_file(video_path).encode())
     h.update(json.dumps(roi_defs, sort_keys=True).encode())
     h.update(method.encode())
+    # Frame height changes the decoded pixels -> must invalidate the cache.
+    h.update(f"fh={frame_height}".encode())
     return h.hexdigest()[:16]
 
 
@@ -58,9 +61,10 @@ def _mean_snr(ppg: np.ndarray, fps: float) -> float:
     return float(np.mean(snrs)) if snrs else 0.0
 
 
-def process_one(video_path: Path, roi_defs: dict, method: str) -> dict:
+def process_one(video_path: Path, roi_defs: dict, method: str,
+                frame_height: int | None = None) -> dict:
     """Full trace pipeline for one video. Returns cache payload + QC."""
-    stream = ingest.open_video(str(video_path))
+    stream = ingest.open_video(str(video_path), frame_height=frame_height)
     landmarks, valid = face.track_landmarks(stream.frames, stream.fps)
     face_valid_frac = float(np.mean(valid))
     traces = roi.extract_roi_means(stream.frames, landmarks, valid, roi_defs)
@@ -85,6 +89,8 @@ def main() -> None:
     p.add_argument("--manifest", required=True)
     p.add_argument("--out-dir", default="data/processed/traces")
     p.add_argument("--method", default="pos", choices=["green", "chrom", "pos"])
+    p.add_argument("--frame-height", type=int, default=ingest.DEFAULT_FRAME_HEIGHT,
+                   help="downscale taller videos to this height (0 = native)")
     p.add_argument("--resume", action="store_true",
                    help="skip videos whose cache key is fresh")
     args = p.parse_args()
@@ -95,10 +101,11 @@ def main() -> None:
     roi_defs = roi.ROI_DEFS_P1
 
     done, skipped, failed = 0, 0, 0
+    frame_height = args.frame_height if args.frame_height and args.frame_height > 0 else None
     for _, row in manifest.iterrows():
         video_path = Path(row["path"])
         vid = str(row["video_id"])
-        key = cache_key(video_path, roi_defs, args.method)
+        key = cache_key(video_path, roi_defs, args.method, frame_height)
         npz_path = out_dir / f"{vid}.npz"
         json_path = out_dir / f"{vid}.json"
         if args.resume and npz_path.is_file() and json_path.is_file():
@@ -109,7 +116,7 @@ def main() -> None:
             except (json.JSONDecodeError, KeyError):
                 pass
         try:
-            payload = process_one(video_path, roi_defs, args.method)
+            payload = process_one(video_path, roi_defs, args.method, frame_height)
         except Exception as exc:  # noqa: BLE001 — per-video isolation
             print(f"FAILED {vid}: {exc}", file=sys.stderr)
             failed += 1

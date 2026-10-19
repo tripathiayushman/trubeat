@@ -54,3 +54,66 @@ def test_low_fps_raises(tmp_path):
     p = synth.write_pulse_video(tmp_path / "slow.mp4", fps=10.0, duration_s=10.0)
     with pytest.raises(LowFps):
         open_video(str(p))
+
+
+def test_tall_video_is_downscaled(tmp_path):
+    # A 1080p clip decoded at native size is 5.8 GB for ~900 frames and
+    # OOM-kills the process on a small machine. open_video must cap the
+    # decoded frame height (aspect preserved, never upscaled).
+    cv2 = pytest.importorskip("cv2")
+    p = tmp_path / "tall.mp4"
+    w, h, n = 320, 1080, 330
+    writer = cv2.VideoWriter(str(p), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h))
+    for i in range(n):
+        writer.write(np.full((h, w, 3), i % 255, dtype=np.uint8))
+    writer.release()
+
+    vs = open_video(str(p))
+    assert vs.frames.shape[1] == 480, "frame height not capped"
+    assert vs.frames.shape[2] == pytest.approx(w * 480 / h, abs=2)
+    # Aspect ratio preserved (within rounding).
+    assert vs.frames.shape[2] / vs.frames.shape[1] == pytest.approx(w / h, rel=0.02)
+
+
+def test_downscale_never_upscales(tmp_path):
+    # A 240p clip must stay 240p — capping height must not blow it up.
+    p = synth.write_pulse_video(tmp_path / "small.mp4")
+    vs = open_video(str(p))
+    assert vs.frames.shape[1] == 240
+    assert vs.frames.shape[2] == 320
+
+
+def test_native_resolution_when_frame_height_none(tmp_path):
+    cv2 = pytest.importorskip("cv2")
+    p = tmp_path / "tall.mp4"
+    w, h, n = 160, 720, 330
+    writer = cv2.VideoWriter(str(p), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h))
+    for i in range(n):
+        writer.write(np.full((h, w, 3), 128, dtype=np.uint8))
+    writer.release()
+
+    vs = open_video(str(p), frame_height=None)
+    assert vs.frames.shape[1] == h
+    assert vs.frames.shape[2] == w
+
+
+def test_oversized_decode_raises_instead_of_oom(tmp_path):
+    # A declared frame count that would exceed the byte budget must fail
+    # loudly (E_UNREADABLE) rather than let the kernel OOM-kill us.
+    cv2 = pytest.importorskip("cv2")
+    p = tmp_path / "big.mp4"
+    w, h, n = 320, 240, 330
+    writer = cv2.VideoWriter(str(p), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h))
+    for i in range(n):
+        writer.write(np.zeros((h, w, 3), dtype=np.uint8))
+    writer.release()
+
+    import trubeat.ingest as ingest_mod
+
+    original = ingest_mod.MAX_DECODED_BYTES
+    ingest_mod.MAX_DECODED_BYTES = 1024  # force the budget to be exceeded
+    try:
+        with pytest.raises(UnreadableVideo):
+            open_video(str(p), frame_height=None)
+    finally:
+        ingest_mod.MAX_DECODED_BYTES = original
