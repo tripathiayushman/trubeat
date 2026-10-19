@@ -75,8 +75,8 @@ def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> Vi
         scale = 1.0
         if frame_height is not None and h > frame_height > 0:
             scale = frame_height / float(h)
-            h, w = frame_height, max(1, int(round(w * scale)))
-        n_est = n_meta if n_meta > 0 else 0
+            h, w = frame_height, max(1, round(w * scale))
+        n_est = max(0, n_meta)
         if n_est:
             est_bytes = n_est * h * w * 3
             if est_bytes > MAX_DECODED_BYTES:
