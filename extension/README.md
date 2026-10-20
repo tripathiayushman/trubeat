@@ -123,6 +123,13 @@ Run through this after loading the extension.
       agreement, SNR and the caveat.
 - [ ] The same clip uploaded to the web app gives the **same verdict and the
       same numbers** (the extension and the app are the same pipeline).
+      To check this without a browser, run the extension's own client
+      against the backend and diff it against the app's analysis:
+
+      ```bash
+      node tests/js/extension_print_result.mjs http://127.0.0.1:7860 clip.mp4
+      python -c "from trubeat.app import analyze_video; print(analyze_video('clip.mp4').to_json())"
+      ```
 
 **B. Error states (all must be honest, none may invent a verdict)**
 - [ ] **Backend stopped** → the overlay says the backend is unreachable
