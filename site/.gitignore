@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-deploy/
+dist-a/
+dist-b/
+dist-c/
