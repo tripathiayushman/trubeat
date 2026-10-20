@@ -85,7 +85,7 @@ const STACK = [
   { cls: 's-org', tag: 'Evidence, not labels', big: 'Every verdict shows its work', p: 'Waveforms, heart rates, region agreement, quality scores — the full measurement ships with every answer, so anyone can argue with it on the merits.' },
   { cls: 's-paper', tag: 'Honesty', big: '“Inconclusive” is an answer', p: 'Under 10 seconds, no trackable face, no measurable pulse — the tool says so instead of inventing a verdict. A detector that never abstains is a detector that lies on schedule.' },
   { cls: 's-ink', tag: 'Open', big: 'Free forever. MIT. No paid services.', p: 'Every phase of this project runs on free and open-source tooling only. Clone it, fork it, ship it — the license is the business model: there isn’t one.' },
-  { cls: 's-org', tag: 'Accessible', big: 'One function. Every door.', p: 'The whole analysis is a single pure function — analyze_video() — already exposed as an API. This website, the CLI, and the browser extension in development are just doors into it.' }
+  { cls: 's-org', tag: 'Accessible', big: 'One function. Every door.', p: 'The whole analysis is a single pure function — analyze_video() — already exposed as an API. This website, the CLI, and the browser extension are just doors into it.' }
 ]
 
 export default function Home({ go }) {
@@ -251,8 +251,8 @@ export default function Home({ go }) {
               <p>One click on any tab: it captures the video playing on your screen, runs the pulse check, and overlays the verdict on the page. It talks only to a TrueBeat backend you choose — your own, by default.</p>
             </div>
             <div className="side">
-              <span className="sticker">In development</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => go('docs')}>How it will work</button>
+              <span className="sticker org">● Live</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => go('docs')}>Load it unpacked</button>
             </div>
           </div>
         </div>

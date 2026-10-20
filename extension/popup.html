@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TrueBeat</title>
+    <style>
+      body {
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #e6e6e6;
+        background: #14161a;
+        margin: 0;
+        padding: 14px 16px;
+        width: 280px;
+      }
+      .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+      .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #6b7280; flex: 0 0 auto;
+      }
+      .dot.ok { background: #22c55e; }
+      .dot.bad { background: #ef4444; }
+      .title { font-weight: 600; font-size: 14px; }
+      .backend {
+        margin-left: auto; color: #8b93a1; font-size: 11px;
+        max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; direction: rtl; text-align: right;
+      }
+      button {
+        width: 100%; padding: 9px 12px; border-radius: 8px; border: 0;
+        background: #f97316; color: #14161a; font-weight: 600; font-size: 13px;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.ghost {
+        background: #1e222a; color: #cfd5df; margin-top: 8px; font-weight: 500;
+      }
+      .hint { color: #8b93a1; font-size: 11px; margin-top: 10px; }
+      .status { color: #8b93a1; font-size: 12px; margin-top: 8px; }
+      .err { color: #f59e0b; }
+      .caveat {
+        margin-top: 10px; padding-top: 8px; border-top: 1px solid #262a33;
+        color: #8b93a1; font-size: 11px; line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="head">
+      <span class="dot" id="dot"></span>
+      <span class="title">TrueBeat</span>
+      <span class="backend" id="backend"></span>
+    </div>
+    <button id="check">Check this tab</button>
+    <button class="ghost" id="options">Options</button>
+    <div class="status" id="status"></div>
+    <div class="hint">
+      Records ~20 s of the tab's video and analyses it on your own backend.
+      Nothing is stored, nothing is sent anywhere but that backend.
+    </div>
+    <div class="caveat" id="caveat">
+      Detects face-swaps. Reenactment fakes — Face2Face, NeuralTextures — keep
+      the original pulse and are out of scope.
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TrueBeat recorder (offscreen)</title>
+  </head>
+  <body>
+    <!--
+      Offscreen document: the only place a service worker cannot reach where
+      getUserMedia + MediaRecorder are available. It records the tab stream
+      and hands the resulting blob back to the service worker. It never
+      touches the network.
+    -->
+    <script src="offscreen.js"></script>
+  </body>
+</html>

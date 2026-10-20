@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TrueBeat — options</title>
+    <style>
+      body {
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #e6e6e6; background: #14161a; margin: 0; padding: 28px 24px;
+        max-width: 640px;
+      }
+      h1 { font-size: 19px; margin: 0 0 4px; }
+      .sub { color: #8b93a1; margin: 0 0 22px; font-size: 13px; }
+      label { display: block; margin: 18px 0 6px; font-weight: 600; font-size: 13px; }
+      .hint { color: #8b93a1; font-size: 12px; margin-top: 5px; }
+      input[type="text"],
+      input[type="number"] {
+        width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 8px;
+        border: 1px solid #2a2e36; background: #1a1d23; color: #e6e6e6;
+        font: inherit;
+      }
+      button {
+        margin-top: 18px; padding: 9px 16px; border-radius: 8px; border: 0;
+        background: #f97316; color: #14161a; font-weight: 600; cursor: pointer;
+      }
+      button.ghost { background: #1e222a; color: #cfd5df; font-weight: 500; margin-left: 8px; }
+      .status { margin-top: 14px; font-size: 13px; color: #8b93a1; }
+      .status.ok { color: #22c55e; }
+      .status.err { color: #f59e0b; }
+      .box {
+        margin-top: 26px; padding: 14px 16px; border: 1px solid #262a33;
+        border-radius: 10px; background: #171a1f; color: #9aa3b2; font-size: 12px;
+      }
+      .box h2 { color: #cfd5df; font-size: 13px; margin: 0 0 8px; }
+      code { color: #f97316; }
+    </style>
+  </head>
+  <body>
+    <h1>TrueBeat — options</h1>
+    <p class="sub">
+      The extension sends captured video to this backend and shows what it
+      answers. Nothing else is contacted.
+    </p>
+
+    <label for="backend">Backend URL</label>
+    <input type="text" id="backend" placeholder="http://127.0.0.1:7860" />
+    <div class="hint" id="permHint">
+      A local backend needs no extra permission. For a hosted backend (e.g.
+      an https://*.hf.space URL) the extension asks for access to that origin
+      when you save.
+    </div>
+
+    <label for="seconds">Capture length (seconds)</label>
+    <input type="number" id="seconds" min="12" max="60" step="1" />
+    <div class="hint">
+      12–60 s. Longer captures find the pulse better but take longer to
+      analyse (roughly 20 s of processing per minute of video on a CPU).
+    </div>
+
+    <button id="save">Save</button>
+    <button class="ghost" id="test">Test connection</button>
+    <div class="status" id="status"></div>
+
+    <div class="box">
+      <h2>Privacy</h2>
+      <p>
+        Captures are not stored by the extension and are sent only to the
+        backend URL above. There is no telemetry, no analytics and no other
+        network traffic. A local backend keeps everything on your machine.
+      </p>
+      <p>
+        This tool reads a face's blood-flow signal. Use it on video you are
+        allowed to analyse, and remember that face videos are biometric data.
+      </p>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

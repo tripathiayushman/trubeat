@@ -110,6 +110,16 @@ do not start the next phase until the gate is met or consciously waived.
       so a future extension reuses it; Gradio's built-in API already exposes it
       over HTTP. The app degrades to a pulse/HR analyzer when no detector
       model is installed. See the README's "Run the app" section.
+- [x] **M4.2b — Browser extension (Phase 4b).** `extension/`: Chrome MV3,
+      vanilla JS, zero build step. Captures the tab via `tabCapture` in an
+      offscreen document (MediaRecorder → WebM, max width 1280), refuses
+      black/DRM frames instead of uploading them, uploads to the
+      user-configured backend over the Gradio API, and overlays the
+      three-state verdict in a shadow-DOM panel. It never computes a verdict
+      or recalibrates a threshold: it calls the backend's `analyze_video`
+      endpoint, which packages the same `analyze_video()` the app uses. No
+      telemetry, no storage, no network traffic to anything but the
+      configured backend. See `extension/README.md`.
 - [ ] **M4.1 — API.** `serve.py`: FastAPI `POST /predict` → FR-12 JSON. Offline
       by default; model weights baked into the Docker image.
 - [x] **M4.2 — Demo.** Gradio page: upload video → label + confidence +

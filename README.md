@@ -99,6 +99,22 @@ analysis = analyze_video("clip.mp4")   # -> PulseAnalysis (verdict + evidence)
 should call — Gradio's built-in API already exposes the same function over
 HTTP, so an extension can POST a video without a second implementation.
 
+## Browser extension (Phase 4b)
+
+A Chrome extension (Manifest V3, vanilla JS, no build step) in
+[`extension/`](extension/README.md): one click checks the video playing in
+the current tab and overlays the verdict on the page.
+
+```bash
+# load it: chrome://extensions → Developer mode → Load unpacked → extension/
+```
+
+It captures ~20 s of the tab, uploads it to **your** backend, and renders
+the three-state verdict with the evidence numbers. It never computes a
+verdict itself and never recalibrates a threshold — it calls the same
+`analyze_video()` the web app uses, over the Gradio API. No telemetry, no
+storage, no network traffic to anything but the backend URL you set.
+
 ## Layout
 
 ```

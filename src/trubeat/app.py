@@ -458,6 +458,56 @@ def build_demo(
         plot = gr.Plot(label="Per-region pulse waveforms")
         caveat = gr.Markdown(f"**Caveat — always applies:** {CAVEAT}")
         btn.click(run, inputs=[video], outputs=[verdict, detail, evidence, plot, caveat])
+
+        # Thin, machine-readable endpoint for the browser extension
+        # (Phase 4b). It only *packages* what analyze_video already
+        # computed — no new pipeline, no new thresholds, no recalibration.
+        # Wired through a hidden button so the input type is the same
+        # FileData the upload flow sends.
+        def analyze_json(video_path):
+            a = analyze_video(
+                video_path, cfg, model_path=model_path, thresholds=thresholds
+            )
+            finite_hr = [b for b in a.per_roi_hr if np.isfinite(b)]
+            return json.dumps(
+                {
+                    "verdict": a.verdict,
+                    "headline": a.headline,
+                    "detail": a.detail,
+                    "score": a.detector_score,
+                    "hr_bpm": float(np.mean(finite_hr)) if finite_hr else None,
+                    "region_agreement_bpm": a.agreement_bpm,
+                    "snr": a.mean_snr,
+                    "face_valid_frac": a.face_valid_frac,
+                    "duration_s": a.duration_s,
+                    "per_roi_hr": {
+                        n: (float(b) if np.isfinite(b) else None)
+                        for n, b in zip(a.roi_names, a.per_roi_hr)
+                    },
+                    "qc": {
+                        "ok": a.verdict != "inconclusive",
+                        "face_valid_frac": a.face_valid_frac,
+                        "snr": a.mean_snr,
+                        "duration_s": a.duration_s,
+                        "degraded": a.degraded,
+                        "warnings": a.warnings,
+                    },
+                    "caveat": CAVEAT,
+                }
+            )
+
+        api_btn = gr.Button(visible=False)
+        api_out = gr.Textbox(label="result", visible=False)
+        api_btn.click(
+            analyze_json,
+            inputs=[video],
+            outputs=[api_out],
+            api_name="analyze_video",
+            api_description=(
+                "Analyse a video of a face; returns JSON with the verdict, "
+                "the evidence numbers and the standing caveat."
+            ),
+        )
     return demo
 
 

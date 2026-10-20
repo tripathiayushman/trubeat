@@ -15,7 +15,7 @@ export default function Docs({ go }) {
         <div className="wrap" style={{ position: 'relative' }}>
           <div className="kicker">Documentation</div>
           <h1>Run TrueBeat <span className="acc">anywhere</span></h1>
-          <p>One pipeline, four ways in: the online demo, your own hosted copy, the local app and CLI, and — soon — a browser extension. Everything below is free.</p>
+          <p>One pipeline, four ways in: the online demo, your own hosted copy, the local app and CLI, and the browser extension. Everything below is free.</p>
         </div>
       </div>
       <section style={{ paddingTop: 20 }}>
@@ -103,14 +103,23 @@ export default function Docs({ go }) {
               <li><b>Lighting:</b> steady light beats dramatic light. Flicker and hard motion corrupt every region at once.</li>
             </ul>
 
-            <h2 id="extension">Browser extension — in development</h2>
+            <h2 id="extension">Browser extension — load it unpacked</h2>
             <p>The extension brings the check to wherever the video already is. Click it on any tab and it captures the video currently playing on screen, sends it to a TrueBeat backend <b>you</b> choose (your local app by default), and overlays the verdict on the page — pulse-consistent, pixel-replacement pattern, or inconclusive, with the evidence one click deeper.</p>
             <ul>
               <li><b>Capture:</b> works on standard web video (news sites, YouTube, social feeds). DRM-protected streams return black frames — the extension will say “can’t capture this” rather than guess.</li>
-              <li><b>Privacy:</b> the capture goes only to your configured backend. Nothing is sent to any third party, ever.</li>
+              <li><b>Privacy:</b> the capture goes only to your configured backend. Nothing is sent to any third party, ever, and nothing is stored.</li>
               <li><b>Engine:</b> it calls the same <code>analyze_video()</code> API the web app exposes — no second implementation to drift.</li>
-              <li><b>Status:</b> in development (Phase 4b). Watch the <a href={REPO} target="_blank" rel="noreferrer" style={{ color: 'var(--grn)' }}>repository</a> for the first release.</li>
             </ul>
+            <CodeBlock title="install the extension" lines={[
+              { k: 'cmt', s: '# 1 · the extension needs a backend to talk to' },
+              { k: 'cmd', s: 'git clone https://github.com/ondyari/truebeat && cd truebeat' },
+              { k: 'cmd', s: 'pip install -e ".[serving]" && trubeat serve' },
+              { k: 'cmt', s: '# 2 · load it in Chrome' },
+              { k: 'cmd', s: 'open chrome://extensions  →  Developer mode  →  Load unpacked' },
+              { k: 'cmd', s: '#    …and pick the extension/ folder of the repository' },
+              { k: 'cmt', s: '# 3 · click the TrueBeat icon, then "Check this tab"' },
+            ]} />
+            <p style={{ color: 'var(--mut)', fontSize: '0.92em' }}>Full install steps, the settings and a manual QA checklist are in the repository: <a href={REPO} target="_blank" rel="noreferrer" style={{ color: 'var(--grn)' }}>extension/README.md</a>.</p>
 
             <h2 id="contribute">Contribute</h2>
             <p>Contributions are welcome — especially motion-robust trace conditioning, the known open problem from the G1 failure table. The workflow:</p>
