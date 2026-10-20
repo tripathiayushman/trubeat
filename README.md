@@ -30,6 +30,66 @@ pytest                    # smoke tests must stay green
 Then follow the Phase 0 checklist in `docs/07_implementation_plan.md`:
 submit the FF++ / Celeb-DF access forms, download UBFC-rPPG.
 
+## Run the app (Phase 4a)
+
+A one-click web interface over the *same* pipeline the CLI runs
+(ingest → face → ROI → signal → features → predict).
+
+```bash
+uv pip install -e ".[serving]"      # pulls gradio (optional extra)
+trubeat serve                       # http://127.0.0.1:7860
+trubeat serve --port 8080           # different port
+trubeat serve --share               # temporary public link (see the warning below)
+```
+
+Upload a video of a face (**10–120 s works best**; analysis is capped at the
+first 120 s and the app says so when it truncates). Expect roughly **20
+seconds of processing per minute of video** on a CPU — a 60 s clip takes about
+a minute.
+
+You get a three-state verdict with its evidence (per-region heart rate,
+inter-region agreement, `face_valid_frac`, SNR, and a plot of the three ROI
+waveforms):
+
+| verdict | meaning |
+|---------|---------|
+| **Pulse consistent — likely real** | the face regions agree on one pulse and the detector scores the clip on the real side |
+| **Pulse inconsistent — pixel-replacement pattern detected** | the regions disagree and the detector scores the clip on the fake side — the Deepfakes-family signature |
+| **Inconclusive** | the QC gates refused the clip (< 10 s, no face, unstable tracking, no measurable pulse), or no detector model is installed |
+
+**The caveat is always shown, because it is the honest result:**
+
+> Detects face-swap-style fakes (research AUC 0.73 on the Deepfakes family).
+> Cannot detect reenactment fakes (Face2Face, NeuralTextures) — those keep the
+> original pulse. Details: `reports/g2_detector.md`.
+
+**Degraded mode.** If `data/models/detector.joblib` is missing, the app still
+works as a **pulse / heart-rate analyzer** (it reports the per-region heart
+rate, the agreement and the QC) and says that no real/fake decision can be
+made.
+
+**Privacy.** The local app is **fully private** — videos are analysed on this
+machine and never leave it. `--share` publishes a temporary Gradio link:
+**uploads to a shared instance leave the machine**, so use it for demos only,
+never for real faces.
+
+**Free hosting.** The app is a plain Gradio app, so it also runs on
+**Hugging Face Spaces** (free CPU tier) for a public demo — with the same
+caveat that anything uploaded to a hosted instance leaves your machine.
+Deploy by adding a `spaces.yaml` (or `app.py` entrypoint) that calls
+`trubeat.app.build_demo()`.
+
+**Extension hook.** The analysis is a pure function, separate from the UI:
+
+```python
+from trubeat.app import analyze_video
+analysis = analyze_video("clip.mp4")   # -> PulseAnalysis (verdict + evidence)
+```
+
+`analyze_video` is what the UI calls and what a future browser extension
+should call — Gradio's built-in API already exposes the same function over
+HTTP, so an extension can POST a video without a second implementation.
+
 ## Layout
 
 ```
@@ -43,10 +103,19 @@ third_party/   # reference clones only (rPPG-Toolbox) — never dependencies
 
 ## Status
 
-Scaffold + docs complete. Pipeline modules are typed stubs raising
-`NotImplementedError`, sequenced by `docs/09` Track A for autonomous
-implementation. Human gates (env, dataset forms/downloads, ROI glance,
-gate reviews) are collected in `reports/HUMAN_GATES.md` once Track A lands.
+Phase 1 (heart rate) and Phase 2 (classical detector) are implemented and
+**both gates failed honestly** — see
+[`reports/g2_detector.md`](reports/g2_detector.md) for the central write-up
+(the Phase-2 result: an rPPG-consistency detector that clears the threshold
+on the Deepfakes family and is structurally blind to the reenactment
+families, because pulse inheritance leaves the performer's pulse intact).
+
+Phase 4a: the Gradio web app (`trubeat serve`) is in place over the same
+pipeline. Phase 3 (CNN on PPG maps) is **not pursued** — the reason is
+recorded in `docs/07`.
+
+Human gates (env, dataset forms/downloads, ROI glance, gate reviews) are
+collected in `reports/HUMAN_GATES.md`.
 
 ## License
 

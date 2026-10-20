@@ -102,10 +102,20 @@ do not start the next phase until the gate is met or consciously waived.
 
 ## Phase 4 — Productize (2–3 days)
 
+- [x] **M4.2a — Gradio app (Phase 4a).** `src/trubeat/app.py` + `trubeat serve
+      [--port 7860] [--share]`: upload a video → three-state verdict with its
+      evidence (per-region HR, inter-region agreement, `face_valid_frac`, SNR,
+      per-ROI waveform plot) and the always-visible operating-envelope caveat.
+      The analysis is a pure function (`analyze_video`) separate from the UI,
+      so a future extension reuses it; Gradio's built-in API already exposes it
+      over HTTP. The app degrades to a pulse/HR analyzer when no detector
+      model is installed. See the README's "Run the app" section.
 - [ ] **M4.1 — API.** `serve.py`: FastAPI `POST /predict` → FR-12 JSON. Offline
       by default; model weights baked into the Docker image.
-- [ ] **M4.2 — Demo.** Gradio page: upload video → label + confidence +
-      per-window votes + bpm + warnings shown.
+- [x] **M4.2 — Demo.** Gradio page: upload video → label + confidence +
+      per-window votes + bpm + warnings shown. *(M4.2a above supersedes the
+      original sketch: the verdict is three-state with its evidence, not a
+      bare label.)*
 - [ ] **M4.3 — Container.** Dockerfile (3.11-slim, headless OpenCV), one-command
       `docker run`.
 - **Gate G4:** `trubeat predict video.mp4` works end-to-end offline.

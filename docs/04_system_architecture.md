@@ -49,9 +49,18 @@ Single-machine, offline-first. No component calls the network during inference.
                         |                               |
                  +------v------+                 +------v------+
                  |  Evaluator  |                 |  Serve (P4) |
-                 |   eval.py   |                 |  serve.py   |
+                 |   eval.py   |                 |  app.py     |
                  +-------------+                 +-------------+
 ```
+
+The Phase-4a web app (`app.py`) sits on top of the *same* pipeline the CLI
+uses — it does not reimplement any stage. Its analysis half
+(`analyze_video`) is a pure function returning a `PulseAnalysis`
+(three-state verdict + per-region heart rate, inter-region agreement,
+`face_valid_frac`, SNR, ROI waveforms), and the interface half
+(`build_demo`) is Gradio wiring. A browser extension can therefore reuse
+`analyze_video` — over Gradio's built-in API or a purpose-built one —
+without a second implementation.
 
 ## 3. Data flow (the pipeline, end to end)
 

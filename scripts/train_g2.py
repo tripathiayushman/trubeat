@@ -800,6 +800,23 @@ def _write_report(**kw) -> None:
     A("")
 
     # ------------------------------------------------------------------
+    # APPENDIX: per-video detail
+    # ------------------------------------------------------------------
+    A("## Appendix — per-video test detail")
+    A("")
+    A("Every scored test video, with the score the detector assigned it "
+      "(mean decision value over its windows; positive = real side).")
+    A("")
+    A("| video_id | method | label | score | real-vote frac | windows |")
+    A("|----------|--------|-------|-------|----------------|---------|")
+    for s in sorted(kw["te_scores"], key=lambda s: (s.method, s.video_id)):
+        A(f"| {s.video_id} | {s.method} | {s.label} | {s.score:+.4f} | "
+          f"{s.vote_frac_real:.3f} | {s.n_windows} |")
+    A("")
+    A("---")
+    A("")
+
+    # ------------------------------------------------------------------
     # APPENDIX
     # ------------------------------------------------------------------
     A("## Limitations (state them, do not bury them)")

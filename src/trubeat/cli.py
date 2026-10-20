@@ -165,8 +165,27 @@ def main() -> None:
     e.add_argument("--model", default=None)
     e.add_argument("--report", default=None)
 
+    s = sub.add_parser("serve", help="run the TrueBeat web app (Gradio)")
+    s.add_argument("--port", type=int, default=7860)
+    s.add_argument("--share", action="store_true",
+                   help="temporary public Gradio link (uploads leave this machine)")
+    s.add_argument("--config", default=None)
+    s.add_argument("--model", default=None,
+                   help="detector bundle (default: data/models/detector.joblib)")
+
     args = p.parse_args()
     try:
+        if args.cmd == "serve":
+            from . import app as appmod
+
+            argv = ["--port", str(args.port)]
+            if args.share:
+                argv.append("--share")
+            if args.config:
+                argv += ["--config", args.config]
+            if args.model:
+                argv += ["--model", args.model]
+            raise SystemExit(appmod.main(argv))
         {"hr": cmd_hr, "train": cmd_train, "predict": cmd_predict,
          "eval": cmd_eval}[args.cmd](args)
     except TrueBeatError as exc:
