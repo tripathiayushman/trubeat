@@ -350,7 +350,8 @@ def per_method_auc(scores: list[VideoScore]) -> list[dict]:
 
     Each manipulation method is compared against the real videos in the same
     score set — the detector's real task ("is this fake, and how was it
-    made?"), one method at a time.
+    made?"), one method at a time. A bootstrap CI over source videos is
+    included because the per-method fake counts are small.
     """
     reals = [s for s in scores if s.label == "real"]
     out = []
@@ -365,12 +366,14 @@ def per_method_auc(scores: list[VideoScore]) -> list[dict]:
             if len(np.unique(y)) == 2
             else float("nan")
         )
+        lo, hi = bootstrap_auc_ci(subset, threshold=0.0, n_boot=2000, seed=7)
         out.append(
             {
                 "method": m,
                 "n_real": len(reals),
                 "n_fake": len(fakes),
                 "auc": auc,
+                "auc_ci": (lo, hi),
             }
         )
     return out

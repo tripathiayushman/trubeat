@@ -43,16 +43,27 @@ do not start the next phase until the gate is met or consciously waived.
       videos separately (BBC lesson).
 - **Gate G2:** AUC ≥ 0.70 person-disjoint. Above 0.50 (chance) is the honest
   minimum that says the pulse-consistency signal is real; 0.70 says it's useful.
-  - **Status 2026-10-20: FAILED (honestly recorded).** Test AUC **0.474**
-    (95% bootstrap CI over source videos [0.281, 0.648]) on 56 usable test
-    videos, FPR on real videos 0.75. The diagnosis is measured, not guessed:
-    on c23 the three face regions disagree by ~12 bpm in **both** classes —
-    there is no single pulse to be consistent about (R-01 confirmed), the
-    colour-ratio methods sit at chance while only the raw green channel
-    survives, and the inter-ROI coherence feature was found to be a
-    *constant* (single-Welch-segment bug, since fixed). The test split is
-    also too small to resolve the gate (R-15). Next: mixed compression
-    (ADR-06 / R-01) and a larger test split — see `reports/g2_detector.md`.
+  - **Status 2026-10-20: FAILED (honestly recorded).** Test AUC **0.5434**
+    (95% bootstrap CI over source videos [0.4808, 0.6111]) on **250 usable
+    test videos**, accuracy 0.564, FPR on real videos 0.67. The CI excludes
+    0.70, so this run fails the gate rather than failing to measure it.
+  - **The failure is method-specific, and that is the finding.** Per-method
+    AUC against the same reals: **Deepfakes 0.730 [0.620, 0.835]** (the one
+    family that replaces the pixels inside the face — and therefore the
+    pulse — is detected), FaceSwap 0.595 [0.489, 0.702], Face2Face 0.459
+    [0.352, 0.559], NeuralTextures 0.394 [0.290, 0.508]. The geometry
+    methods re-enact the expression while preserving the original
+    performer's pulse — pulse inheritance (R-06) — which is exactly what a
+    blood-flow-consistency detector cannot see.
+  - Supporting measurements: on FF++ c23 the three face regions disagree
+    by ~8.6 bpm in **both** classes (no pulse to be consistent about,
+    R-01 confirmed); a **lossless (raw) probe refutes compression as the
+    cause** (`reports/raw_probe_result.md`); the coherence feature was found
+    to be a **constant** (single-Welch-segment bug, fixed) and a 15 s window
+    was found to **shrink the test set in a label-biased way** (coverage
+    guard added).
+  - Next lever is a **different signal**, not a better-tuned one — see
+    `reports/g2_detector.md`.
 
 ## Phase 3 — FakeCatcher scale (1–2 weeks; the paper's full design)
 

@@ -408,14 +408,23 @@ def _write_report(**kw) -> None:
         "",
         "### Per-method AUC (each manipulation vs the same real videos)",
         "",
-        "| method | n real | n fake | AUC |",
-        "|--------|--------|--------|-----|",
+        "| method | n real | n fake | AUC | 95% CI (bootstrap over source videos) |",
+        "|--------|--------|--------|-----|--------------------------------------|",
     ]
     for m in per_method:
+        lo, hi = m.get("auc_ci", (float("nan"), float("nan")))
         L.append(
             f"| {m['method']} | {m['n_real']} | {m['n_fake']} | "
-            f"{m['auc']:.4f} |"
+            f"{m['auc']:.4f} | [{lo:.4f}, {hi:.4f}] |"
         )
+    L += [
+        "",
+        "**Read this table before quoting the pooled AUC.** One manipulation "
+        "family is well above chance while the others are at or below it, "
+        "so the pooled number is an average over very different behaviours, "
+        "not one capability. The per-method fake counts are small, so the "
+        "per-method intervals are wide — treat them as indicative.",
+    ]
     L += [
         "",
         "### Per-video test detail",
@@ -507,20 +516,58 @@ def _write_report(**kw) -> None:
         "(0.70) and was **rejected** for this reason, not because of its "
         "test score.",
         "",
-        "### 4. What would fix it",
+        "### 4. The detector's skill is method-specific, and that is the headline",
         "",
-        "- **Mixed compression (ADR-06, R-01).** The FakeCatcher mechanism "
-        "needs a visible pulse. c40 and raw (lossless) are available from "
-        "the same server and are the documented mitigation: Intel's finding "
-        "is that compression-matched training restores accuracy. A lossless "
-        "probe set was started to verify that the pulse (and therefore the "
-        "coherence features) actually returns at higher quality.",
-        "- **A larger test set.** 56 usable test videos give a bootstrap CI "
-        "of roughly ±0.27 around the AUC — the interval spans the 0.70 gate, "
-        "so this experiment cannot resolve it. The official FF++ test split "
-        "holds 140 source videos; only 56 of ours are usable so far. "
-        "Enlarging the test set is a prerequisite for measuring the gate, "
-        "not a way to pass it.",
+        "With the enlarged test split the per-method table is no longer "
+        "noise-dominated, and it splits the four manipulation families into "
+        "two groups:",
+        "",
+        "- **Deepfakes is detected** (AUC 0.73, CI [0.62, 0.84] — the interval "
+        "reaches the 0.70 gate).",
+        "- **The geometry-manipulation families are not**: Face2Face 0.46, "
+        "NeuralTextures 0.39 (both at or below chance, CI upper bounds 0.56 "
+        "and 0.51), FaceSwap 0.60 (CI [0.49, 0.70]).",
+        "",
+        "So the pooled 0.54 is not \"a weak detector\" — it is one strong "
+        "case and three blind spots averaged together. The plausible reading: "
+        "**Deepfakes replaces the pixels inside the face**, so the pulse "
+        "consistency the features measure is destroyed along with the "
+        "identity, and the loss shows up in exactly the features we compute. "
+        "The geometry methods (Face2Face) re-enact the expression while "
+        "keeping the skin texture and lighting of the original performer, so "
+        "the pulse signal survives the manipulation — which is precisely the "
+        "scenario the published work calls *pulse inheritance* (R-06). A "
+        "detector built on blood-flow consistency should struggle there, and "
+        "it does.",
+        "",
+        "NeuralTextures is *anti*-correlated (0.39, CI upper bound 0.51): the "
+        "detector ranks these fakes as more real-looking than the real "
+        "videos. That is a specific, testable weakness rather than mere "
+        "weakness, and it should be reported as such — a model that is "
+        "confidently wrong on a whole manipulation family is worse than one "
+        "that is uninformative, because its errors are systematic.",
+        "",
+        "### 5. What would fix it",
+        "",
+        "- **Mixed compression (ADR-06, R-01) — TESTED AND REFUTED as the "
+        "fix.** A lossless probe of the same 80 source videos shows the pulse "
+        "does not become class-discriminative at raw quality either "
+        "(ROI-HR spread: c23 real 8.6 / fake 8.5 bpm; raw real 6.9 / fake "
+        "6.6 bpm — the class gap stays zero). Compression is not the "
+        "cause; see `reports/raw_probe_result.md`. Mixed compression stays "
+        "on the plan as a robustness check, not as the rescue.",
+        "- **A larger test set — DONE.** The test split was enlarged from 56 "
+        "to 250 usable videos (all 140 official test-split originals + 115 "
+        "manipulated, methods balanced). The bootstrap CI on the pooled AUC "
+        "tightened from ±0.18 to ±0.065 and now **excludes the 0.70 gate** — "
+        "so this run can fail the gate rather than merely fail to resolve "
+        "it. That was the point of enlarging it.",
+        "- **The remaining lever is a different signal, not a better-tuned "
+        "one.** The per-method split above says the mechanism works where "
+        "the manipulation destroys the face's pulse (Deepfakes) and cannot "
+        "work where the pulse survives it (geometry methods, R-06). That is "
+        "a statement about the feature family, so more tuning of these "
+        "features will not fix it.",
         "",
         "## Test-set evaluation disclosure",
         "",
@@ -528,16 +575,19 @@ def _write_report(**kw) -> None:
         "development, each time after a change that was justified on "
         "train/val only. All three numbers are disclosed here:",
         "",
-        "| # | model | test AUC | why it was superseded |",
-        "|---|-------|----------|-----------------------|",
-        "| 1 | POS method, hard vote-fraction score, no coverage guard | 0.3201 | wrong method for c23; vote fraction discarded the ranking information |",
-        "| 2 | green method, soft score, 15 s window | 0.5871 | the 15 s window silently shrank the test set in a label-biased way |",
-        "| 3 | **green method, soft score, 10 s window, coverage guard** | **{final:.4f}** | reported below |",
+        "| # | model | test set | test AUC | why it was superseded |",
+        "|---|-------|----------|----------|-----------------------|",
+        "| 1 | POS method, hard vote-fraction score, no coverage guard | 56 videos | 0.3201 | wrong method for c23; the vote fraction discarded the ranking information |",
+        "| 2 | green method, soft score, 15 s window | 56 videos | 0.5871 | the 15 s window silently shrank the test set in a label-biased way |",
+        "| 3 | green method, soft score, 10 s window, coverage guard | 56 videos | 0.4740 | same model, but 56 videos cannot resolve the gate (CI ±0.27) |",
+        "| 4 | **same model, enlarged test split** | **250 videos** | **{final:.4f}** | reported below |",
         "",
-        "No hyper-parameter, feature or threshold was chosen by looking at "
-        "the test score. The final configuration was selected by group-aware "
-        "CV on train, the operating threshold by validation Youden's J, and "
-        "the test split was scored once with everything frozen.",
+        "Rows 1-3 used the original 56-video test split; row 4 is the same "
+        "frozen model on the enlarged split (enlarging it was to *measure* "
+        "the gate, not to re-pick the model). No hyper-parameter, feature or "
+        "threshold was chosen by looking at a test score: the configuration "
+        "comes from group-aware CV on train, the operating threshold from "
+        "validation Youden's J.",
         "",
         "## Limitations (state them, do not bury them)",
         "",
@@ -547,15 +597,18 @@ def _write_report(**kw) -> None:
         "is decoded with a **480 px frame-height cap** (aspect preserved), so "
         "the model cannot read the resolution shortcut — but this is a "
         "mitigation, not a proof, and it must be stated with any FF++ number.",
-        "- **Only 6 fakes per method in the test split** (n=56 videos total): "
-        "the per-method AUCs are high-variance. The bootstrap CI on the "
-        "overall AUC is the number to quote; per-method values are indicative.",
+        "- **Per-method fake counts are still modest** (27-31 per method in a "
+        "250-video test split): the per-method AUCs carry wide intervals and "
+        "are indicative, not conclusive. The pooled AUC with its ±0.065 "
+        "interval is the number to quote.",
         "- **Single resolution family, single compression (c23).** c40 and "
-        "raw are not in this manifest; the compression axis is untested (R-01).",
-        "- **The test split is too small to resolve the gate** (56 usable "
-        "videos, bootstrap CI ±~0.27). A failure here is a failure to "
-        "*demonstrate* the gate, not proof that a better model would not "
-        "pass on a larger test set — and equally, not proof that one would.",
+        "raw are not in this manifest; the compression axis is untested "
+        "for training (R-01 — and the lossless probe shows it would not "
+        "have helped these features).",
+        "- **The test split now resolves the gate** (250 usable videos, "
+        "bootstrap CI ±0.065) and the interval **excludes 0.70**, so this "
+        "run fails the gate rather than failing to measure it. That is the "
+        "difference from the earlier 56-video run.",
         "- **No cross-dataset number yet.** Celeb-DF v2 is the real exam and "
         "has not been run (R-09).",
         "- The 29 unusable videos (mostly broadcast footage with no "
