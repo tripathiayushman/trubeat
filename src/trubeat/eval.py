@@ -216,6 +216,7 @@ def evaluate_detector(manifest: pd.DataFrame, model, config: dict) -> DetectionR
     accuracy = (tp + tn) / n if n else float("nan")
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
+    # fp = real videos predicted fake, tn = real videos predicted real.
     fpr_on_real = fp / (fp + tn) if (fp + tn) else 0.0
     y_bin = (y_true == "real").astype(int)
     auc = (

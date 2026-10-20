@@ -31,14 +31,14 @@ do not start the next phase until the gate is met or consciously waived.
 
 ## Phase 2 — Consistency + classical detector (3–4 evenings; brief steps 5–6)
 
-- [ ] **M2.1 — Compare the patches.** `consistency.py` + `features.py`:
+- [x] **M2.1 — Compare the patches.** `consistency.py` + `features.py`:
       per-window pairwise coherence across 3–6 ROIs, lag-0 correlations,
       spectral features. A few evenings, as the brief says.
-- [ ] **M2.2 — Data.** FF++ c23 (real + all four fake methods) → manifests with
+- [x] **M2.2 — Data.** FF++ c23 (real + all four fake methods) → manifests with
       `split_group = source_video_id`. Cache RGB traces.
-- [ ] **M2.3 — Train.** `model.py`: sklearn Pipeline (scaler → LogReg/SVM),
+- [x] **M2.3 — Train.** `model.py`: sklearn Pipeline (scaler → LogReg/SVM),
       `GroupKFold` on the split group. Window votes → majority label.
-- [ ] **M2.4 — Evaluate.** `eval.py`: accuracy, AUC, precision/recall, confusion
+- [x] **M2.4 — Evaluate.** `eval.py`: accuracy, AUC, precision/recall, confusion
       matrix on a person-disjoint split. Report the false-positive rate on real
       videos separately (BBC lesson).
 - **Gate G2:** AUC ≥ 0.70 person-disjoint. Above 0.50 (chance) is the honest
@@ -68,10 +68,24 @@ do not start the next phase until the gate is met or consciously waived.
     to be a **constant** (single-Welch-segment bug, fixed) and a 15 s window
     was found to **shrink the test set in a label-biased way** (coverage
     guard added).
-  - Next lever is a **different signal**, not a better-tuned one — see
-    `reports/g2_detector.md`.
+  - **Phase 2 closes here, as a characterised partial result.** The full
+    scientific write-up — verdict, per-method envelope, mechanism, the
+    transposed-confusion-matrix disclosure, the reconciliation table, the
+    supporting evidence and the reasoning for not proceeding to Phase 3 —
+    is **`reports/g2_detector.md`**, the project's central document for the
+    Phase-2 result. Read that before quoting any FF++ number.
+  - **Phase 3 is not pursued** (human decision, 2026-10-20). Reason: pulse
+    inheritance (R-06) means the geometry families leave the performer's
+    pulse intact, so there is **no signal to learn** for three of the four
+    families; a CNN on PPG maps could only latch onto artifacts (re-encoding,
+    resolution — R-14), which cannot honestly be reported as rPPG progress
+    and would not survive the cross-dataset exam.
 
 ## Phase 3 — FakeCatcher scale (1–2 weeks; the paper's full design)
+
+> **Not pursued** — see the Phase-2 conclusion above. The steps below are
+> kept for the record and for the case where the human later decides a
+> different feature family is worth a try.
 
 - [ ] **M3.1 — 32 ROIs + PPG maps.** Tile the face into 32 sub-regions;
       per region, stack time signal + power spectrum into a 2-D PPG map.
