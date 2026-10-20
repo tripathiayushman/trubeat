@@ -1,4 +1,13 @@
-# TrueBeat (`trubeat`)
+
+```
+████████╗██████╗ ██╗   ██╗███████╗██████╗ ███████╗ █████╗ ████████╗
+╚══██╔══╝██╔══██╗██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗╚══██╔══╝
+   ██║   ██████╔╝██║   ██║█████╗  ██████╔╝█████╗  ███████║   ██║   
+   ██║   ██╔══██╗██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██║   ██║   
+   ██║   ██║  ██║╚██████╔╝███████╗██████╔╝███████╗██║  ██║   ██║   
+   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝  
+  
+```
 
 A from-scratch rebuild of **FakeCatcher** (Ciftci, Demir & Yin, 2020): read the
 human pulse from ordinary video via remote photoplethysmography (rPPG), check
@@ -123,4 +132,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Contact
 
-Ayushman Tripathi — tripathiayushman@example.com
+Ayushman Tripathi — atr.ayushmantripathi@gmail.com
