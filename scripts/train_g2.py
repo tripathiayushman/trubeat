@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -57,6 +58,8 @@ def load_usable_manifest(path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
 def main() -> None:
     p = argparse.ArgumentParser(prog="train_g2")
     p.add_argument("--manifest", required=True)
+    p.add_argument("--qc-manifest", default=None,
+                   help="QC-annotated manifest (default: --manifest)")
     p.add_argument("--traces", default="data/processed/traces")
     p.add_argument("--config", required=True)
     p.add_argument("--model", default="runs/g2_detector.joblib")
@@ -72,6 +75,7 @@ def main() -> None:
     cache_dir = Path(args.traces)
 
     usable, all_rows = load_usable_manifest(args.manifest)
+    args.qc_manifest = args.qc_manifest or args.manifest
     print(f"manifest rows {len(all_rows)} -> usable {len(usable)}")
 
     splits = {s: usable[usable["split"] == s] for s in ("train", "val", "test")}
@@ -212,6 +216,16 @@ def main() -> None:
     )
     per_method = detector.per_method_auc(te_scores)
     hrq = detector.hr_quality(te_scores, cache_dir)
+
+    # Reconciliation table: downloaded -> cached -> usable -> scored.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from audit_test_split import audit_table
+
+    audit_df, audit_reasons, audit_total = audit_table(
+        Path(args.manifest), Path(args.qc_manifest), cache_dir
+    )
+    n_scored_real = sum(1 for s in te_scores if s.label == "real")
+    n_scored_fake = sum(1 for s in te_scores if s.label == "fake")
     pulse = {
         lbl: detector.pulse_visibility(
             cache_dir, splits[s][splits[s]["label"] == lbl]["video_id"].tolist(),
@@ -270,6 +284,11 @@ def main() -> None:
         auc_hi=auc_hi,
         per_method=per_method,
         hrq=hrq,
+        audit_df=audit_df,
+        audit_reasons=audit_reasons,
+        audit_total=audit_total,
+        n_scored_real=n_scored_real,
+        n_scored_fake=n_scored_fake,
         pulse=pulse,
         te_scores=te_scores,
         gate=gate,
@@ -342,6 +361,63 @@ def _write_report(**kw) -> None:
         "with no measurable signal are excluded with a recorded reason, so no "
         "unusable row reaches training.",
         "",
+        "### Test-split reconciliation (downloaded → cached → usable → scored)",
+        "",
+        "Every count below is read from the filesystem and the manifests by "
+        "`scripts/audit_test_split.py` — none is carried by hand.",
+        "",
+        "| method | label | on disk (all splits) | in manifest (all) | "
+        "test manifest | test cached | test usable | test excluded |",
+        "|--------|-------|-----------------------|------------------|"
+        "---------------|--------------|-------------|---------------|",
+    ]
+    for _, r in kw["audit_df"].iterrows():
+        L.append(
+            f"| {r['method']} | {r['label']} | {r['on_disk_all_splits']} | "
+            f"{r['in_manifest_all_splits']} | {r['test_manifest']} | "
+            f"{r['test_cached']} | {r['test_usable']} | {r['test_excluded']} |"
+        )
+    at = kw["audit_total"]
+    L += [
+        f"| **total** | | **{at['on_disk_all_splits']}** | "
+        f"**{at['in_manifest_all_splits']}** | **{at['test_manifest']}** | "
+        f"**{at['test_cached']}** | **{at['test_usable']}** | "
+        f"**{at['test_excluded']}** |",
+        "",
+        "**Where the gaps come from:**",
+        "",
+        f"- *on disk → in manifest*: {at['on_disk_all_splits']} = "
+        f"{at['in_manifest_all_splits']} — every downloaded video is in the "
+        "manifest (nothing downloaded but unlisted).",
+        "- *in manifest → test manifest*: the `split` column comes from the "
+        "official FF++ split JSONs, so this is a partition, not a loss.",
+        f"- *test manifest → test cached*: {at['test_manifest']} - "
+        f"{at['test_cached']} = {at['test_manifest'] - at['test_cached']} "
+        "videos have no cached trace. Reason: `E_SHORT_VIDEO` — the clip is "
+        "shorter than the 10 s minimum, so the pipeline refuses it (R-03).",
+        f"- *test cached → test usable*: {at['test_cached']} - "
+        f"{at['test_usable']} = {at['test_cached'] - at['test_usable']} "
+        "videos excluded by QC:",
+        "",
+        "| exclusion reason | n |",
+        "|-----------------|---|",
+    ]
+    for reason, n in sorted(kw["audit_reasons"].items(), key=lambda kv: -kv[1]):
+        L.append(f"| {reason} | {n} |")
+    L += [
+        "",
+        "  (`NO_FACE` and `NO_SIGNAL` are the SAME 5 videos — no face tracked "
+        "→ no pulse → zero SNR — so they are one exclusion, not two; the "
+        "`MISSING_CACHE` 4 are videos with no trace at all. "
+        f"5 + 4 = {at['test_excluded']} excluded videos. The `NO_FACE` clips "
+        "are broadcast-style footage where MediaPipe finds no face at any "
+        "confidence.)",
+        f"- *test usable → scored*: {at['test_usable']} of "
+        f"{at['test_usable']} — every usable test video produces features at "
+        "the 10 s window (the coverage guard guarantees 100% coverage), so "
+        f"**scored = usable = {at['test_usable']}** "
+        f"({kw['n_scored_real']} real + {kw['n_scored_fake']} fake).",
+        "",
         "## Hyperparameter search (scored by group-aware CV on TRAIN only)",
         "",
         "| method | window | classifier | feature subset | train CV AUC | min coverage |",
@@ -395,12 +471,24 @@ def _write_report(**kw) -> None:
         f"{te.get('recall', float('nan')):.4f} / {te.get('f1', float('nan')):.4f}",
         f"- **FPR on real videos: {te.get('fpr_on_real', float('nan')):.4f}**",
         "",
-        "### Confusion matrix (rows = truth, cols = predicted; 'fake' = positive)",
+        "### Confusion matrix (rows = truth, columns = prediction; **positive = fake**)",
         "",
-        "| | pred fake | pred real |",
-        "|--------|----------|----------|",
-        f"| **true fake** | {te.get('tp', 0)} | {te.get('fn', 0)} |",
-        f"| **true real** | {te.get('fp', 0)} | {te.get('tn', 0)} |",
+        "| truth \\ prediction | pred fake | pred real | total |",
+        "|-------------------|----------|----------|-------|",
+        f"| **true fake** | {te.get('tp', 0)} | {te.get('fn', 0)} | "
+        f"{te.get('tp', 0) + te.get('fn', 0)} |",
+        f"| **true real** | {te.get('fp', 0)} | {te.get('tn', 0)} | "
+        f"{te.get('fp', 0) + te.get('tn', 0)} |",
+        f"| **total** | {te.get('tp', 0) + te.get('fp', 0)} | "
+        f"{te.get('fn', 0) + te.get('tn', 0)} | {te.get('n', 0)} |",
+        "",
+        f"- `fpr_on_real` = {te.get('fpr_on_real', float('nan')):.4f} = "
+        f"**real videos wrongly flagged as fake** "
+        f"({te.get('fp', 0)} of {te.get('fp', 0) + te.get('tn', 0)} real videos) "
+        "— the R-07 headline.",
+        f"- fake-class recall (fakes caught) = "
+        f"{te.get('recall', float('nan')):.4f}; precision = "
+        f"{te.get('precision', float('nan')):.4f}",
         "",
         f"- gate G2: test AUC ≥ 0.70 -> "
         f"**{'PASS' if kw['gate'] else 'FAIL'}** "

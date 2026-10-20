@@ -45,8 +45,14 @@ do not start the next phase until the gate is met or consciously waived.
   minimum that says the pulse-consistency signal is real; 0.70 says it's useful.
   - **Status 2026-10-20: FAILED (honestly recorded).** Test AUC **0.5434**
     (95% bootstrap CI over source videos [0.4808, 0.6111]) on **250 usable
-    test videos**, accuracy 0.564, FPR on real videos 0.67. The CI excludes
-    0.70, so this run fails the gate rather than failing to measure it.
+    test videos**, accuracy 0.564, **FPR on real videos 0.237** (32 of 135
+    reals wrongly flagged). The CI excludes 0.70, so this run fails the gate
+    rather than failing to measure it.
+  - Test-split reconciliation (all counts read from disk by
+    `scripts/audit_test_split.py`): 603 downloaded = 603 in manifest; of the
+    259 official test rows, 255 cached (4 refused by the 10 s duration
+    gate), 250 usable (5 more excluded: no detectable face → no signal),
+    **250 scored** (135 real + 115 fake).
   - **The failure is method-specific, and that is the finding.** Per-method
     AUC against the same reals: **Deepfakes 0.730 [0.620, 0.835]** (the one
     family that replaces the pixels inside the face — and therefore the

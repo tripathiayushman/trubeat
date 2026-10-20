@@ -93,11 +93,43 @@ def test_video_metrics_confusion():
         [0.9, 0.8, 0.2, 0.1],
     )
     m = detector.video_metrics(s, threshold=0.5)
-    # score >= threshold -> "real" (1)
+    # score >= threshold -> "real"; below -> "fake" (positive = fake).
+    # 2 reals above threshold (called real), 2 fakes below (called fake).
     assert (m["tp"], m["tn"], m["fp"], m["fn"]) == (2, 2, 0, 0)
     assert m["accuracy"] == 1.0
     assert m["auc"] == 1.0
     assert m["fpr_on_real"] == 0.0
+
+
+def test_video_metrics_fpr_on_real_counts_reals_flagged_as_fake():
+    """Regression: the confusion matrix rows were swapped and FPR on real
+    was reporting the fake-class miss rate.
+
+    Setup: 4 real videos, 4 fake videos. The threshold flags 2 of the reals
+    as fake, and misses 2 of the fakes. A correct implementation reports:
+      tp=2 (fakes caught), fn=2 (fakes missed), fp=2 (reals flagged),
+      tn=2 (reals passed)  -> fpr_on_real = 2/4 = 0.5
+    """
+    s = _scores(
+        ["real"] * 4 + ["fake"] * 4,
+        [0.9, 0.8, 0.2, 0.1, 0.9, 0.8, 0.2, 0.1],
+    )
+    m = detector.video_metrics(s, threshold=0.5)
+    assert (m["tp"], m["fn"], m["fp"], m["tn"]) == (2, 2, 2, 2)
+    assert m["fpr_on_real"] == pytest.approx(0.5)
+    assert m["n_real"] == 4 and m["n_fake"] == 4
+    # the row totals must match the class counts
+    assert m["tp"] + m["fn"] == m["n_fake"]
+    assert m["fp"] + m["tn"] == m["n_real"]
+
+
+def test_video_metrics_auc_is_threshold_free():
+    # Swapping the positive class must not change the AUC.
+    s = _scores(["real"] * 3 + ["fake"] * 3, [0.9, 0.8, 0.7, 0.3, 0.2, 0.1])
+    m = detector.video_metrics(s, threshold=0.5)
+    assert m["auc"] == pytest.approx(1.0)
+    m2 = detector.video_metrics(s, threshold=0.0)  # everything called fake
+    assert m2["auc"] == pytest.approx(1.0)
 
 
 def test_bootstrap_auc_ci_brackets_truth():

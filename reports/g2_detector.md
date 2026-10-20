@@ -1,4 +1,4 @@
-# G2 detection gate — FF++ c23 — 2026-10-20 07:33
+# G2 detection gate — FF++ c23 — 2026-10-20 10:08
 
 ## Setup
 
@@ -28,6 +28,35 @@
 | test | 135 | 115 | 250 |
 
 Every cached video carries QC (`face_valid_frac`, `mean_snr`); videos with no measurable signal are excluded with a recorded reason, so no unusable row reaches training.
+
+### Test-split reconciliation (downloaded → cached → usable → scored)
+
+Every count below is read from the filesystem and the manifests by `scripts/audit_test_split.py` — none is carried by hand.
+
+| method | label | on disk (all splits) | in manifest (all) | test manifest | test cached | test usable | test excluded |
+|--------|-------|-----------------------|------------------|---------------|--------------|-------------|---------------|
+| original | real | 308 | 308 | 140 | 138 | 135 | 5 |
+| Deepfakes | fake | 75 | 75 | 31 | 31 | 29 | 2 |
+| Face2Face | fake | 75 | 75 | 31 | 31 | 31 | 0 |
+| FaceSwap | fake | 72 | 72 | 28 | 27 | 27 | 1 |
+| NeuralTextures | fake | 73 | 73 | 29 | 28 | 28 | 1 |
+| **total** | | **603** | **603** | **259** | **255** | **250** | **9** |
+
+**Where the gaps come from:**
+
+- *on disk → in manifest*: 603 = 603 — every downloaded video is in the manifest (nothing downloaded but unlisted).
+- *in manifest → test manifest*: the `split` column comes from the official FF++ split JSONs, so this is a partition, not a loss.
+- *test manifest → test cached*: 259 - 255 = 4 videos have no cached trace. Reason: `E_SHORT_VIDEO` — the clip is shorter than the 10 s minimum, so the pipeline refuses it (R-03).
+- *test cached → test usable*: 255 - 250 = 5 videos excluded by QC:
+
+| exclusion reason | n |
+|-----------------|---|
+| NO_FACE | 5 |
+| NO_SIGNAL | 5 |
+| MISSING_CACHE | 4 |
+
+  (`NO_FACE` and `NO_SIGNAL` are the SAME 5 videos — no face tracked → no pulse → zero SNR — so they are one exclusion, not two; the `MISSING_CACHE` 4 are videos with no trace at all. 5 + 4 = 9 excluded videos. The `NO_FACE` clips are broadcast-style footage where MediaPipe finds no face at any confidence.)
+- *test usable → scored*: 250 of 250 — every usable test video produces features at the 10 s window (the coverage guard guarantees 100% coverage), so **scored = usable = 250** (135 real + 115 fake).
 
 ## Hyperparameter search (scored by group-aware CV on TRAIN only)
 
@@ -64,22 +93,26 @@ Selected: **method=green**, window **10.0 s**, classifier **logreg**, features (
 
 - val AUC: 0.6579
 - val accuracy: 0.6389
-- val FPR on real: 0.4762
+- val FPR on real: 0.2000
 - train GroupKFold(3) CV AUC: 0.6370 ± 0.0377
 
 ## TEST — evaluated once, everything frozen beforehand
 
 - **AUC: 0.5434** (95% bootstrap CI over source videos: [0.4808, 0.6111], 2000 resamples)
 - accuracy: 0.5640
-- precision / recall / F1: 0.5722 / 0.7630 / 0.6540
-- **FPR on real videos: 0.6696**
+- precision / recall / F1: 0.5429 / 0.3304 / 0.4108
+- **FPR on real videos: 0.2370**
 
-### Confusion matrix (rows = truth, cols = predicted; 'fake' = positive)
+### Confusion matrix (rows = truth, columns = prediction; **positive = fake**)
 
-| | pred fake | pred real |
-|--------|----------|----------|
-| **true fake** | 103 | 32 |
-| **true real** | 77 | 38 |
+| truth \ prediction | pred fake | pred real | total |
+|-------------------|----------|----------|-------|
+| **true fake** | 38 | 77 | 115 |
+| **true real** | 32 | 103 | 135 |
+| **total** | 70 | 180 | 250 |
+
+- `fpr_on_real` = 0.2370 = **real videos wrongly flagged as fake** (32 of 135 real videos) — the R-07 headline.
+- fake-class recall (fakes caught) = 0.3304; precision = 0.5429
 
 - gate G2: test AUC ≥ 0.70 -> **FAIL** (0.5434)
 

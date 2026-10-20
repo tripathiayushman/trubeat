@@ -308,30 +308,45 @@ def bootstrap_auc_ci(
 def video_metrics(
     scores: list[VideoScore], threshold: float
 ) -> dict:
-    """Video-level metrics at a given threshold (accuracy, confusion, ...)."""
+    """Video-level metrics at a given threshold.
+
+    Convention throughout: **positive = "fake"**. The video score is the mean
+    decision value (positive = "real"), so a video is called fake when its
+    score is *below* the threshold.
+
+    The names below refer to the FAKE class:
+      tp = fakes called fake      fn = fakes called real
+      fp = **reals called fake**  tn = reals called real
+    ``fpr_on_real`` is therefore the fraction of REAL videos wrongly flagged
+    as fake — the number that matters (R-07, the BBC lesson) — not the
+    fake-class miss rate.
+    """
     if not scores:
         return {}
-    y = np.array([s.label == "real" for s in scores], dtype=int)
+    y = np.array([s.label == "fake" for s in scores], dtype=int)  # 1 = fake
     x = np.array([s.score for s in scores], dtype=float)
-    pred = (x >= threshold).astype(int)  # 1 = "real"
+    pred = (x < threshold).astype(int)  # 1 = "fake" (score below threshold)
+    # sklearn, with 1 = fake:  tn = fake?no/fake?no  fp = fake?no/fake?yes
+    #                             fn = fake?yes/fake?no  tp = fake?yes/fake?yes
     tn, fp, fn, tp = confusion_matrix(y, pred, labels=[0, 1]).ravel()
     out = {
         "n": len(scores),
-        "n_real": int((y == 1).sum()),
-        "n_fake": int((y == 0).sum()),
+        "n_real": int((y == 0).sum()),
+        "n_fake": int((y == 1).sum()),
         "accuracy": float(accuracy_score(y, pred)),
         "precision": float(precision_score(y, pred, zero_division=0)),
         "recall": float(recall_score(y, pred, zero_division=0)),
         "f1": float(f1_score(y, pred, zero_division=0)),
-        # "fake" is the positive class for the detector's business: a real
-        # video flagged as fake is the failure mode that matters (R-07).
+        # Real videos wrongly flagged as fake — the R-07 headline.
         "fpr_on_real": float(fp / max(fp + tn, 1)),
         "tp": int(tp), "tn": int(tn), "fp": int(fp), "fn": int(fn),
     }
+    # AUC: higher score = more "real", so the positive label for ranking
+    # is "real" (1 - y).
     out["auc"] = (
-        float(roc_auc_score(y, x)) if len(np.unique(y)) == 2 else float("nan")
+        float(roc_auc_score(1 - y, x)) if len(np.unique(y)) == 2 else float("nan")
     )
-    out["roc"] = _roc_points(y, x)
+    out["roc"] = _roc_points(1 - y, x)
     return out
 
 
