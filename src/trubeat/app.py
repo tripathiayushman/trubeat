@@ -423,6 +423,108 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
 # ---------------------------------------------------------------------------
 
 
+# Web look: TrueBeat website v4 (trubeat.vercel.app). Black ink page, dark
+# panels, paper text, safety orange accent, sharp corners, hard offset
+# shadows. Fonts are a local stack only: the UI must make zero network
+# requests, so no webfont links ever ship with the app.
+UI_CSS = """
+.gradio-container{background:#0D0D0D !important;color:#F4F0E8;
+  font-family:'Archivo','Arial Black',system-ui,sans-serif !important}
+.gradio-container .prose, .gradio-container .prose p{color:#F4F0E8}
+.gradio-container h1, .gradio-container h2, .gradio-container h3{color:#F4F0E8}
+#tb-head h1{text-transform:uppercase;letter-spacing:.01em;font-weight:900}
+[data-testid="block-label"]{background:#FF4D00 !important;color:#0D0D0D !important;
+  font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:11px;
+  border-radius:0 !important}
+#tb-video{border:2px solid rgba(244,240,232,.85) !important;border-radius:0 !important;
+  background:#141414 !important}
+#tb-video .upload-container{background:#141414 !important;border-radius:0 !important;
+  transition:transform .15s, box-shadow .15s}
+#tb-video .upload-container:hover{box-shadow:4px 4px 0 rgba(255,77,0,.5)}
+#tb-video [data-testid="upload-text"]{color:#F4F0E8}
+#tb-analyse{background:#FF4D00 !important;color:#0D0D0D !important;font-weight:800;
+  text-transform:uppercase;letter-spacing:.04em;border:2px solid #FF4D00 !important;
+  border-radius:0 !important;box-shadow:5px 5px 0 rgba(244,240,232,.85) !important;
+  transition:transform .15s, box-shadow .15s}
+#tb-analyse:hover{transform:translate(-2px,-2px);
+  box-shadow:7px 7px 0 rgba(244,240,232,.85) !important}
+#tb-evidence table{border-collapse:collapse;width:100%}
+#tb-evidence th, #tb-evidence td{border:1px solid rgba(244,240,232,.32);
+  padding:6px 10px;text-align:left;color:#F4F0E8}
+#tb-evidence th{background:#141414;text-transform:uppercase;font-weight:800;
+  letter-spacing:.05em;font-size:.85em}
+#tb-evidence tr:nth-child(even) td{background:rgba(244,240,232,.03)}
+#tb-caveat{background:#141414;border:2px solid #FF4D00;border-radius:0;
+  padding:12px 14px;color:#F4F0E8}
+#tb-caveat strong{color:#FF4D00}
+#tb-verdict{font-size:1.05em}
+a{color:#F4F0E8 !important}
+.progress-bar{background-color:#FF4D00 !important}
+"""
+
+
+def _ui_theme():
+    """The v4 web look as token overrides on the bare Base theme."""
+    import gradio as gr
+
+    fonts = gr.themes.utils.fonts
+    return gr.themes.Base(
+        # radius_none: sharp corners everywhere (no Soft theme, no rounding)
+        radius_size=gr.themes.sizes.radius_none,
+        # Font wrapper = bare font-family name, no webfont, zero requests.
+        # (Plain strings work at the constructor but break blocks.launch's
+        # theme comparison, which expects font objects.)
+        font=[
+            fonts.Font("Archivo"),
+            fonts.Font("Arial Black"),
+            fonts.Font("system-ui"),
+            fonts.Font("sans-serif"),
+        ],
+        font_mono=[
+            fonts.Font("ui-monospace"),
+            fonts.Font("Consolas"),
+            fonts.Font("monospace"),
+        ],
+    ).set(
+        body_background_fill="#0D0D0D",
+        body_background_fill_dark="#0D0D0D",
+        background_fill_primary="#0D0D0D",
+        background_fill_secondary="#141414",
+        panel_background_fill="#141414",
+        panel_background_fill_dark="#141414",
+        block_background_fill="#141414",
+        block_background_fill_dark="#141414",
+        input_background_fill="#1A1A1A",
+        input_background_fill_dark="#1A1A1A",
+        body_text_color="#F4F0E8",
+        body_text_color_dark="#F4F0E8",
+        body_text_color_subdued="#A89F8F",
+        block_title_text_color="#F4F0E8",
+        block_label_background_fill="#FF4D00",
+        block_label_text_color="#0D0D0D",
+        block_border_color="rgba(244,240,232,.32)",
+        input_border_color="rgba(244,240,232,.32)",
+        border_color_accent="#FF4D00",
+        border_color_accent_subdued="rgba(255,77,0,.5)",
+        button_primary_background_fill="#FF4D00",
+        button_primary_background_fill_dark="#FF4D00",
+        button_primary_background_fill_hover="#FF4D00",
+        button_primary_text_color="#0D0D0D",
+        button_primary_border_color="#FF4D00",
+        button_secondary_background_fill="#141414",
+        button_secondary_text_color="#F4F0E8",
+        link_text_color="#F4F0E8",
+        loader_color="#FF4D00",
+        error_background_fill="#1A1A1A",
+        error_text_color="#F4F0E8",
+        # none of gradio's soft shadows: shadows here are hard offsets (CSS)
+        shadow_inset="none",
+        shadow_drop="none",
+        shadow_drop_lg="none",
+        shadow_spread="0",
+    )
+
+
 def build_demo(
     config: dict | None = None,
     model_path: Path | str | None = DEFAULT_MODEL_PATH,
@@ -446,23 +548,32 @@ def build_demo(
         evidence = _evidence_text(analysis)
         return (analysis.headline, analysis.detail, evidence, _plot(analysis), CAVEAT)
 
-    with gr.Blocks(title="TrueBeat — rPPG deepfake check") as demo:
+    # Note (gradio 6+): theme/CSS moved from the Blocks constructor to
+    # demo.launch(); they are applied in main() from _ui_theme()/UI_CSS.
+    with gr.Blocks(title="TrueBeat: rPPG deepfake check") as demo:
         gr.Markdown(
-            "# TrueBeat — rPPG deepfake check\n"
+            "# TrueBeat: rPPG deepfake check\n"
             "Upload a short video of a face (10–120 s works best). "
             "Analysis takes roughly **20 seconds per minute of video** on a "
-            "CPU — a 60 s clip is about a minute of waiting."
+            "CPU: a 60 s clip is about a minute of waiting.",
+            elem_id="tb-head",
         )
         with gr.Row():
             with gr.Column():
-                video = gr.Video(label="Video (10–120 s, visible face)", sources=["upload"])
-                btn = gr.Button("Analyse", variant="primary")
+                video = gr.Video(
+                    label="Video (10–120 s, visible face)",
+                    sources=["upload"],
+                    elem_id="tb-video",
+                )
+                btn = gr.Button("Analyse", variant="primary", elem_id="tb-analyse")
             with gr.Column():
-                verdict = gr.Markdown()
-                detail = gr.Markdown()
-                evidence = gr.Markdown()
-        plot = gr.Plot(label="Per-region pulse waveforms")
-        caveat = gr.Markdown(f"**Caveat — always applies:** {CAVEAT}")
+                verdict = gr.Markdown(elem_id="tb-verdict")
+                detail = gr.Markdown(elem_id="tb-detail")
+                evidence = gr.Markdown(elem_id="tb-evidence")
+        plot = gr.Plot(label="Per-region pulse waveforms", elem_id="tb-plot")
+        caveat = gr.Markdown(
+            f"**Caveat: always applies:** {CAVEAT}", elem_id="tb-caveat"
+        )
         btn.click(run, inputs=[video], outputs=[verdict, detail, evidence, plot, caveat])
 
         # Thin, machine-readable endpoint for the browser extension
@@ -554,12 +665,21 @@ def _plot(a: PulseAnalysis):
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(8, 2.6), dpi=110)
-    for name, wave in zip(a.waveform_names, a.roi_waveforms):
-        ax.plot(wave, linewidth=0.7, label=name)
+    fig.patch.set_facecolor("#0D0D0D")
+    ax.set_facecolor("#0D0D0D")
+    # website palette across the three ROIs: orange, paper, muted warm grey
+    line_colors = ("#FF4D00", "#F4F0E8", "#A89F8F")
+    for i, (name, wave) in enumerate(zip(a.waveform_names, a.roi_waveforms)):
+        ax.plot(wave, linewidth=0.7, label=name, color=line_colors[i % 3])
     ax.set_xlabel("frame")
     ax.set_ylabel("pulse")
     ax.set_title("Per-region pulse waveforms (conditioned, 0.7-3 Hz band)")
-    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    ax.tick_params(colors="#F4F0E8", labelcolor="#F4F0E8")
+    for spine in ax.spines.values():
+        spine.set_color("#A89F8F")
+    legend = ax.legend(loc="upper right", fontsize=8, frameon=False)
+    for text in legend.get_texts():
+        text.set_color("#F4F0E8")
     fig.tight_layout()
     return fig
 
@@ -591,9 +711,10 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(config.get("band"), list):
             config["band"] = tuple(config["band"])
 
-    try:
-        import gradio as gr
-    except ImportError:
+    # availability probe (gradio itself is only imported inside launch paths)
+    import importlib.util
+
+    if importlib.util.find_spec("gradio") is None:
         print(
             "Gradio is not installed. Install the optional extra:\n"
             "    uv pip install 'trubeat[serving]'\n"
@@ -609,6 +730,8 @@ def main(argv: list[str] | None = None) -> int:
         server_name="0.0.0.0",
         server_port=args.port,
         share=args.share,
-        theme=gr.themes.Soft(),
+        # the v4 web look (theme + CSS moved from Blocks to launch in gradio 6)
+        theme=_ui_theme(),
+        css=UI_CSS,
     )
     return 0
