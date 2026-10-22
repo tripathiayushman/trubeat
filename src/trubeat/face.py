@@ -18,15 +18,22 @@ _BUNDLE_URL = (
 def resolve_model_path() -> Path:
     """Locate the Face Landmarker .task bundle.
 
-    Resolution order: TRUBEAT_FACE_MODEL env var, then
-    <repo>/data/models/face_landmarker.task.
-    Raises RuntimeError with download instructions when the file is missing.
+    Resolution order: the ``TRUBEAT_FACE_MODEL`` env override, the
+    repo-root ``data/models/`` copy (repo checkouts — the symlink there
+    already points at the packaged copy), then the copy **packaged inside
+    the wheel** (``site-packages/trubeat/models/``), so a pip-installed
+    tool — the Hugging Face Space, for example — finds it without any
+    checkout beside it. The caller raises the download-instructions error
+    when the returned path is missing.
     """
     env = os.environ.get("TRUBEAT_FACE_MODEL")
     if env:
         return Path(env)
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / "data" / "models" / "face_landmarker.task"
+    readers = Path(__file__).resolve()
+    repo_data = readers.parents[2] / "data" / "models" / "face_landmarker.task"
+    if repo_data.is_file():
+        return repo_data
+    return readers.parent / "models" / "face_landmarker.task"
 
 
 def _load_landmarker(model_path: Path):
