@@ -72,10 +72,13 @@ waveforms):
 > Cannot detect reenactment fakes (Face2Face, NeuralTextures) — those keep the
 > original pulse. Details: `reports/g2_detector.md`.
 
-**Degraded mode.** If `data/models/detector.joblib` is missing, the app still
-works as a **pulse / heart-rate analyzer** (it reports the per-region heart
-rate, the agreement and the QC) and says that no real/fake decision can be
-made.
+**Degraded mode.** The G2 detector bundle is committed inside the package
+(`src/trubeat/models/detector.joblib`) and ships in the wheel, so the app
+finds it from any working directory. A locally retrained bundle can override
+it by being placed at `models/detector.joblib` or `data/models/detector.joblib`
+in the repo root. With no bundle found at all, the app still works as a
+**pulse / heart-rate analyzer** (it reports the per-region heart rate, the
+agreement and the QC) and says that no real/fake decision can be made.
 
 **Privacy.** The local app is **fully private** — videos are analysed on this
 machine and never leave it. `--share` publishes a temporary Gradio link:

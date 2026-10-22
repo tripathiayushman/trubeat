@@ -1,0 +1,6 @@
+# Install the tool itself from GitHub@main. `[serving]` brings gradio (plus
+# fastapi/uvicorn) — in a Gradio-SDK Space the preinstalled gradio already
+# satisfies the extra (it is unpinned), so pip leaves it alone; in a Docker
+# Space this same line installs it. The detector bundle ships inside the
+# wheel — nothing is copied by hand.
+trubeat[serving] @ git+https://github.com/tripathiayushman/trubeat@main

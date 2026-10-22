@@ -229,6 +229,21 @@ def test_load_detector_reads_a_bundle(tmp_path):
     assert bundle["threshold"] == -0.5
 
 
+def test_load_detector_finds_the_packaged_copy_from_any_cwd(tmp_path, monkeypatch):
+    """A pip-installed tool must find the detector with no checkout beside it.
+
+    The G2 bundle is committed inside the package (src/trubeat/models/) and
+    MODEL_SEARCH_PATHS ends with a package-relative entry. From a foreign
+    working directory — exactly the situation in a Hugging Face Space — the
+    search must still resolve it.
+    """
+    monkeypatch.chdir(tmp_path)  # no repo-root models/, no data/models/
+    bundle = app_mod.load_detector(None)
+    assert bundle is not None, "packaged detector not found via search"
+    assert "model" in bundle
+    assert Path(bundle["_path"]).parts[-3:] == ("trubeat", "models", "detector.joblib")
+
+
 # ------------------------------------------------------------ integration ---
 
 

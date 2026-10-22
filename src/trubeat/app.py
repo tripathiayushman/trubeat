@@ -29,13 +29,18 @@ from . import face, features, hr, ingest, roi, signal
 from .errors import TrueBeatError
 
 # Where the trained G2 detector is looked up (see scripts/train_g2.py).
-# The first path is the committed copy (2.7 KB); the second is where a
-# locally retrained model can be dropped.
+# Search order:
+#   1. repo checkout paths — lets a locally retrained bundle override the
+#      pinned one by dropping `models/detector.joblib` at the repo root;
+#   2. the packaged copy — so a pip-installed tool (e.g. a Hugging Face
+#      Space) runs the same detector without any checkout beside it.
 MODEL_SEARCH_PATHS = [
     Path("models/detector.joblib"),
     Path("data/models/detector.joblib"),
+    Path(__file__).parent / "models" / "detector.joblib",
 ]
-DEFAULT_MODEL_PATH = MODEL_SEARCH_PATHS[0]
+# None means "search MODEL_SEARCH_PATHS in order".
+DEFAULT_MODEL_PATH = None
 
 # Always-visible honesty caveat (G2's measured operating envelope).
 CAVEAT = (
@@ -352,8 +357,9 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
         a.headline = "Inconclusive — no detector model available"
         a.detail = (
             "The pulse was measured, but the detector model is not installed, "
-            "so no real/fake decision can be made. Install "
-            f"{DEFAULT_MODEL_PATH} for the full verdict."
+            "so no real/fake decision can be made. Drop a trained bundle at "
+            "data/models/detector.joblib (or models/detector.joblib) for the "
+            "full verdict."
         )
         a.warnings.append("W_NO_DETECTOR")
         return a
@@ -568,7 +574,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="create a temporary public Gradio link (uploads leave "
                         "this machine — use only for demos)")
     p.add_argument("--config", default=None)
-    p.add_argument("--model", default=str(DEFAULT_MODEL_PATH))
+    p.add_argument("--model", default=None,
+                   help="detector bundle path (default: search models/, "
+                        "data/models/, then the packaged copy)")
     args = p.parse_args(argv)
 
     try:
@@ -593,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    demo = build_demo(config, model_path=Path(args.model))
+    demo = build_demo(config, model_path=args.model)
     if args.share:
         print("WARNING: --share exposes this app publicly. Uploaded videos "
               "leave this machine. Use it for demos only.")

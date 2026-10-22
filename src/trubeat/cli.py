@@ -171,7 +171,8 @@ def main() -> None:
                    help="temporary public Gradio link (uploads leave this machine)")
     s.add_argument("--config", default=None)
     s.add_argument("--model", default=None,
-                   help="detector bundle (default: data/models/detector.joblib)")
+                   help="detector bundle (default: search models/, data/models/, "
+                        "then the packaged copy)")
 
     args = p.parse_args()
     try:
