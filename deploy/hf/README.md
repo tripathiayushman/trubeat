@@ -18,6 +18,15 @@ face's blood-flow signal is consistent, and answers with one of three
 verdicts — pulse-consistent, pixel-replacement pattern, or inconclusive —
 with the evidence numbers and the always-on caveat.
 
+> **Deploy note (2026-10):** Hugging Face no longer hosts Gradio/Docker
+> Spaces on the free `cpu-basic` tier for free accounts — `gradio deploy`
+> answers `402 Payment Required` at create. This deploy therefore needs a
+> PRO subscription (or another container host); nothing here is
+> pay-per-analysis, and as configured the Space WOULD be public `cpu-basic`.
+> The deployed environment is proven locally: `pip install
+> -r requirements.txt` in a fresh 3.11 env reproduces the calibrated
+> numbers bit-for-bit.
+
 **Honest limits:** it detects the face-swap family (research AUC 0.73 on
 Deepfakes). Reenactment fakes (Face2Face, NeuralTextures) keep the original
 pulse and are out of scope — see the survey-free breakdown in the tool
