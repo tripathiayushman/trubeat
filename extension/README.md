@@ -43,13 +43,20 @@ The caveat is always on screen:
    trubeat serve          # http://127.0.0.1:7860
    ```
 
-2. Load the extension:
+2. Get the extension folder:
+   - **Download the packaged zip** (recommended):
+     <https://github.com/tripathiayushman/trubeat/releases/latest/download/trubeat-extension.zip>
+     — unzip it to get an `extension/` folder; or
+   - work from a checkout: the folder is [`extension/`](./) in the
+     [tool repository](https://github.com/tripathiayushman/trubeat).
+
+3. Load it:
    - open `chrome://extensions`
    - turn on **Developer mode** (top right)
    - click **Load unpacked**
-   - pick the `extension/` folder of this repository
+   - pick the `extension/` folder
 
-3. Click the TrueBeat icon in the toolbar. The dot next to the title turns
+4. Click the TrueBeat icon in the toolbar. The dot next to the title turns
    green when the backend is reachable. Use **Options** to change the
    backend URL or the capture length.
 

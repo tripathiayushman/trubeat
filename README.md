@@ -109,11 +109,25 @@ the current tab and overlays the verdict on the page.
 # load it: chrome://extensions → Developer mode → Load unpacked → extension/
 ```
 
+Prefer a download? Grab the packaged zip from the releases page — the
+stable link, always the latest build:
+
+<https://github.com/tripathiayushman/trubeat/releases/latest/download/trubeat-extension.zip>
+
 It captures ~20 s of the tab, uploads it to **your** backend, and renders
 the three-state verdict with the evidence numbers. It never computes a
 verdict itself and never recalibrates a threshold — it calls the same
 `analyze_video()` the web app uses, over the Gradio API. No telemetry, no
 storage, no network traffic to anything but the backend URL you set.
+
+## Website
+
+The website (marketing pages, documentation, research summary and the
+"try it online" demo page) lives in its own repo,
+[tripathiayushman/trubeat-website](https://github.com/tripathiayushman/trubeat-website)
+and is served at <https://trubeat.vercel.app>. Nothing about the tool
+changed with the split: this repo is the product; the website is its
+front door.
 
 ## Layout
 
