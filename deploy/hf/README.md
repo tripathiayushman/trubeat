@@ -1,5 +1,5 @@
 ---
-title: TrueBeat
+title: trubeat
 emoji: 💓
 colorFrom: green
 colorTo: red
