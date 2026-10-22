@@ -6,6 +6,11 @@ requires-python = ">=3.11,<3.13"  # mediapipe 0.10.21 ships cp312 wheels (verifi
 dependencies = [
   "numpy<2.0",            # MediaPipe 0.10.x breaks on NumPy 2 — do not lift
   "opencv-python-headless==4.9.0.80",  # headless: CI-safe, no imshow anywhere
+  "opencv-contrib-python==4.9.0.80",   # mediapipe dep; pinned to match headless
+                                       # (mixed cv2 versions shift cv2's files)
+  "scipy>=1.11,<1.13",    # Welch/PPG numerics move after 1.13 — the G2
+                          # calibration (hr/snr/agreement scale) was measured
+                          # on 1.12.0; keep installs bit-comparable
   "mediapipe==0.10.21",
   "scipy>=1.11",
   "scikit-learn>=1.3",

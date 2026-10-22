@@ -5,7 +5,10 @@
 #   python app.py                     (listens on 0.0.0.0:7860)
 FROM python:3.11-slim
 
-RUN useradd -m -u 1000 user
+RUN useradd -m -u 1000 user \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 USER user
 ENV HOME=/home/user \
