@@ -90,7 +90,7 @@ function startCapture({ streamId, tabId, seconds }) {
               tabId,
               title: "Can't capture this video",
               message:
-                "Can't capture this video — protected stream (DRM) or black frames.",
+                "Can't capture this video: protected stream (DRM) or black frames.",
             });
             return;
           }

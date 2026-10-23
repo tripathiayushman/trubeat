@@ -23,12 +23,12 @@ async function refreshStatus() {
       status.className = "status";
     } else {
       dot.className = "dot bad";
-      status.textContent = "Backend unreachable — start it with: trubeat serve";
+      status.textContent = "Backend unreachable. Start it with: trubeat serve";
       status.className = "status err";
     }
   } catch (err) {
     dot.className = "dot bad";
-    status.textContent = "Backend unreachable — start it with: trubeat serve";
+    status.textContent = "Backend unreachable. Start it with: trubeat serve";
     status.className = "status err";
   }
 }
@@ -41,7 +41,7 @@ checkBtn.addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) throw new Error("No active tab.");
     await chrome.runtime.sendMessage({ type: "CHECK_TAB", tabId: tab.id });
-    status.textContent = "Capturing — the result appears on the page.";
+    status.textContent = "Capturing: the result appears on the page.";
     // Give the capture a moment, then let the user get back to the page.
     setTimeout(() => window.close(), 600);
   } catch (err) {

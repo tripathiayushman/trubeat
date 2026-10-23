@@ -19,11 +19,11 @@ def resolve_model_path() -> Path:
     """Locate the Face Landmarker .task bundle.
 
     Resolution order: the ``TRUBEAT_FACE_MODEL`` env override, the
-    repo-root ``data/models/`` copy (repo checkouts — the symlink there
+    repo-root ``data/models/`` copy (repo checkouts: the symlink there
     already points at the packaged copy), then the copy **packaged inside
     the wheel** (``site-packages/trubeat/models/``), so a pip-installed
-    tool — the Hugging Face Space, for example — finds it without any
-    checkout beside it. The caller raises the download-instructions error
+    tool finds it without any checkout beside it. TrueBeat is local-first:
+    the hosted demo is paused, the app runs on the user's own machine. The caller raises the download-instructions error
     when the returned path is missing.
     """
     env = os.environ.get("TRUBEAT_FACE_MODEL")

@@ -233,8 +233,8 @@ section("2. overlay.js — verdict mapping and copy");
     );
     check(
       "the three states are the app's wording",
-      styles.real.label === "Pulse consistent — likely real" &&
-        styles.fake.label === "Pulse inconsistent — pixel-replacement pattern" &&
+      styles.real.label === "Pulse consistent: likely real" &&
+        styles.fake.label === "Pulse inconsistent: pixel-replacement pattern" &&
         styles.inconclusive.label === "Inconclusive",
       JSON.stringify(styles)
     );

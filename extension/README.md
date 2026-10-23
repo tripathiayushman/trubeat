@@ -24,13 +24,13 @@ website):
 
 | Verdict | Meaning | Colour |
 |---------|---------|--------|
-| `Pulse consistent — likely real` | the face regions agree on one pulse and the detector scores the clip on the real side | green |
-| `Pulse inconsistent — pixel-replacement pattern` | the regions disagree and the detector scores the clip on the fake side — the Deepfakes-family signature | red |
+| `Pulse consistent: likely real` | the face regions agree on one pulse and the detector scores the clip on the real side | green |
+| `Pulse inconsistent: pixel-replacement pattern` | the regions disagree and the detector scores the clip on the fake side: the Deepfakes-family signature | red |
 | `Inconclusive` | the QC gates refused the clip: under 10 s, no face, the face visible in under 70% of frames, or no measurable pulse | amber |
 
 The caveat is always on screen:
 
-> Detects face-swaps. Reenactment fakes — Face2Face, NeuralTextures — keep
+> Detects face-swaps. Reenactment fakes (Face2Face, NeuralTextures) keep
 > the original pulse and are out of scope.
 
 ## Install (load unpacked)
@@ -45,8 +45,7 @@ The caveat is always on screen:
 
 2. Get the extension folder:
    - **Download the packaged zip** (recommended):
-     <https://github.com/tripathiayushman/trubeat/releases/latest/download/trubeat-extension.zip>
-     — unzip it to get an `extension/` folder; or
+     <https://github.com/tripathiayushman/trubeat/releases/latest/download/trubeat-extension.zip>: unzip it to get an `extension/` folder; or
    - work from a checkout: the folder is [`extension/`](./) in the
      [tool repository](https://github.com/tripathiayushman/trubeat).
 
@@ -61,7 +60,7 @@ The caveat is always on screen:
    backend URL or the capture length.
 
 > Chrome will ask for permission to capture the tab when you press the
-> button — that is the `tabCapture` permission doing its job.
+> button: that is the `tabCapture` permission doing its job.
 
 ## Options
 
@@ -95,8 +94,8 @@ need no extra permission.
 | `options.html` / `options.js` | Backend URL, capture length, "Test connection". |
 | `icons/` | 16/32/48/128 PNGs (regenerate with `python scripts/make_icons.py`). |
 
-**Why tab capture, not `<video>` scraping:** it works on any site — YouTube,
-news, social — without depending on the page's markup, and it captures what
+**Why tab capture, not `<video>` scraping:** it works on any site (YouTube,
+news, social) without depending on the page's markup, and it captures what
 is actually playing. The extension also refuses to fake a result: if the
 captured frames are uniformly black (a DRM-protected stream, or a player
 that hands the capturer black frames), it stops and says so instead of
@@ -116,7 +115,7 @@ GET  {backend}/gradio_api/call/analyze_video/<id> -> SSE, "complete" carries the
 The JSON carries `verdict`, `headline`, `detail`, `score`, `hr_bpm`,
 `region_agreement_bpm`, `snr`, `face_valid_frac`, `qc` and `caveat`. It is
 produced by `src/trubeat/app.py` from the *same* `analyze_video()` the web
-app uses — no thresholds are duplicated or recalibrated on the client.
+app uses: no thresholds are duplicated or recalibrated on the client.
 
 ## Manual QA checklist
 
@@ -140,13 +139,13 @@ Run through this after loading the extension.
 
 **B. Error states (all must be honest, none may invent a verdict)**
 - [ ] **Backend stopped** → the overlay says the backend is unreachable
-      ("Start it with: `trubeat serve` — or set the backend URL in Options").
+      ("Start it with: `trubeat serve`, or set the backend URL in Options").
 - [ ] **Capture denied** (click Cancel on Chrome's capture bar) → an honest
       "can't capture" message, no verdict.
 - [ ] **Too-short capture** (tab switched away / stream ended) → an honest
       message, no verdict.
 - [ ] **DRM stream** (a Netflix/DRM-protected player) → "Can't capture this
-      video — protected stream (DRM) or black frames", and **nothing is
+      video: protected stream (DRM) or black frames", and **nothing is
       uploaded**.
 - [ ] **Backend error** (kill the backend mid-analysis) → the backend's own
       message is shown.

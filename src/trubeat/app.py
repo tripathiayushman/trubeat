@@ -5,9 +5,9 @@ This module has two clearly separated halves:
 * **Analysis** (:func:`analyze_video`, :func:`verdict_for`) — pure Python,
   no UI dependency. It runs exactly the pipeline the CLI runs
   (ingest → face → ROI → signal → features → predict) and turns the result
-  into a three-state verdict with its evidence. A future browser extension
-  can call :func:`analyze_video` over HTTP (Gradio's built-in API exposes
-  it) without touching the UI code.
+  into a three-state verdict with its evidence. The browser extension calls
+  :func:`analyze_video` over HTTP (Gradio's built-in API exposes it)
+  without touching the UI code.
 
 * **Interface** (:func:`build_demo`, :func:`main`) — Gradio wiring, imported
   lazily so that importing this module (and running its tests) does not
@@ -20,6 +20,7 @@ The verdict logic and every threshold it uses live in
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -32,8 +33,9 @@ from .errors import TrueBeatError
 # Search order:
 #   1. repo checkout paths — lets a locally retrained bundle override the
 #      pinned one by dropping `models/detector.joblib` at the repo root;
-#   2. the packaged copy — so a pip-installed tool (e.g. a Hugging Face
-#      Space) runs the same detector without any checkout beside it.
+#   2. the packaged copy: TrueBeat is local-first (the hosted demo is
+#      paused), so a pip-installed tool runs the same detector without
+#      any checkout beside it.
 MODEL_SEARCH_PATHS = [
     Path("models/detector.joblib"),
     Path("data/models/detector.joblib"),
@@ -45,8 +47,8 @@ DEFAULT_MODEL_PATH = None
 # Always-visible honesty caveat (G2's measured operating envelope).
 CAVEAT = (
     "Detects face-swap-style fakes (research AUC 0.73 on the Deepfakes "
-    "family). Cannot detect reenactment fakes (Face2Face, NeuralTextures) "
-    "— those keep the original pulse. Details: reports/g2_detector.md."
+    "family). Cannot detect reenactment fakes (Face2Face, NeuralTextures): "
+    "those keep the original pulse. Details: reports/g2_detector.md."
 )
 
 # Analysis is capped so a long upload cannot run for an hour.
@@ -172,7 +174,7 @@ def analyze_video(
     except TrueBeatError as exc:
         a = PulseAnalysis(
             verdict="inconclusive",
-            headline="Inconclusive — could not read the video",
+            headline="Inconclusive: could not read the video",
             detail=f"{exc.code}: {exc}",
         )
         a.warnings.append(f"{exc.code}")
@@ -180,7 +182,7 @@ def analyze_video(
     except Exception as exc:  # noqa: BLE001 — the app must not crash
         a = PulseAnalysis(
             verdict="inconclusive",
-            headline="Inconclusive — could not read the video",
+            headline="Inconclusive: could not read the video",
             detail=f"unreadable video: {exc}",
         )
         a.warnings.append("E_UNREADABLE")
@@ -310,9 +312,9 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
     """Assign the three-state verdict, in place. Returns the analysis.
 
     States:
-      * ``real``        — "Pulse consistent — likely real"
-      * ``fake``        — "Pulse inconsistent — pixel-replacement pattern detected"
-      * ``inconclusive``— "Inconclusive — couldn't read a reliable pulse"
+      * ``real``        — "Pulse consistent: likely real"
+      * ``fake``        — "Pulse inconsistent: pixel-replacement pattern detected"
+      * ``inconclusive``: "Inconclusive: couldn't read a reliable pulse"
 
     The QC gates come first: without a readable pulse there is nothing to
     conclude, whatever the detector says.
@@ -324,7 +326,7 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
     reasons: list[str] = []
     if a.duration_s < thr.min_duration_s:
         reasons.append(
-            f"clip is {a.duration_s:.1f}s — shorter than the {thr.min_duration_s:.0f}s "
+            f"clip is {a.duration_s:.1f}s: shorter than the {thr.min_duration_s:.0f}s "
             "minimum needed to resolve a heart rate"
         )
     if a.face_valid_frac <= 0.0:
@@ -344,7 +346,7 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
 
     if reasons:
         a.verdict = "inconclusive"
-        a.headline = "Inconclusive — couldn't read a reliable pulse"
+        a.headline = "Inconclusive: couldn't read a reliable pulse"
         a.detail = "; ".join(reasons) + "."
         for r in reasons:
             if r not in a.warnings:
@@ -354,7 +356,7 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
     # ---- the pulse is readable: use the detector ------------------------
     if a.detector_score is None:
         a.verdict = "inconclusive"
-        a.headline = "Inconclusive — no detector model available"
+        a.headline = "Inconclusive: no detector model available"
         a.detail = (
             "The pulse was measured, but the detector model is not installed, "
             "so no real/fake decision can be made. Drop a trained bundle at "
@@ -373,7 +375,7 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
     if says_real:
         a.verdict = "real"
         if consistent:
-            a.headline = "Pulse consistent — likely real"
+            a.headline = "Pulse consistent: likely real"
             a.detail = (
                 f"The face regions agree on one pulse (spread {spread}) and the "
                 f"detector's score ({a.detector_score:+.2f}) sits on the real "
@@ -383,7 +385,7 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
             # Honest wording: the detector says real, but the evidence does
             # not show a consistent pulse. Do not claim agreement that the
             # measurement contradicts.
-            a.headline = "Likely real — but the face regions disagree on the pulse"
+            a.headline = "Likely real: but the face regions disagree on the pulse"
             a.detail = (
                 f"The detector's score ({a.detector_score:+.2f}) is on the real "
                 f"side of the validated boundary ({thr.detector_threshold:+.2f}), "
@@ -394,23 +396,23 @@ def verdict_for(analysis: PulseAnalysis, thresholds: VerdictThresholds | None = 
     else:
         a.verdict = "fake"
         if not consistent:
-            a.headline = "Pulse inconsistent — pixel-replacement pattern detected"
+            a.headline = "Pulse inconsistent: pixel-replacement pattern detected"
             a.detail = (
                 "The face regions do not agree on one pulse "
-                f"(spread {spread}) — consistent with a Deepfakes-family pixel "
-                "replacement, which replaces the pulse inside the face — and "
+                f"(spread {spread}): consistent with a Deepfakes-family pixel "
+                "replacement, which replaces the pulse inside the face, and "
                 f"the detector's score ({a.detector_score:+.2f}) is on the fake "
                 f"side of the validated boundary ({thr.detector_threshold:+.2f})."
             )
         else:
             # The detector says fake although the regions agree: report the
             # detector's call without inventing a pulse-inconsistency story.
-            a.headline = "Likely fake — detected without a pulse-inconsistency signature"
+            a.headline = "Likely fake: detected without a pulse-inconsistency signature"
             a.detail = (
                 f"The detector's score ({a.detector_score:+.2f}) is on the fake "
                 f"side of the validated boundary ({thr.detector_threshold:+.2f}), "
                 f"although the regions do agree on one pulse (spread {spread}), "
-                "so this is not the Deepfakes-style signature — it may be "
+                "so this is not the Deepfakes-style signature: it may be "
                 "another manipulation family, which this detector cannot "
                 "distinguish (see the caveat)."
             )
@@ -657,7 +659,7 @@ def _evidence_text(a: PulseAnalysis) -> str:
     if a.detector_score is not None:
         rows.append(f"| detector score | {a.detector_score:+.3f} |")
     else:
-        rows.append("| detector score | n/a (no model — degraded mode) |")
+        rows.append("| detector score | n/a (no model: degraded mode) |")
     if a.warnings:
         rows.append(f"| warnings | {'; '.join(a.warnings)} |")
     return "\n".join(rows)
@@ -700,12 +702,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=7860)
     p.add_argument("--share", action="store_true",
                    help="create a temporary public Gradio link (uploads leave "
-                        "this machine — use only for demos)")
+                        "this machine: use only for demos)")
     p.add_argument("--config", default=None)
     p.add_argument("--model", default=None,
                    help="detector bundle path (default: search models/, "
                         "data/models/, then the packaged copy)")
     args = p.parse_args(argv)
+
+    # Offline by architecture: no analytics beacon unless the user asked
+    # for one (an explicitly set value wins; this only sets the default).
+    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "0")
 
     try:
         import yaml

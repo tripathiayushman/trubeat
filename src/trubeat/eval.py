@@ -144,7 +144,7 @@ def evaluate_hr(manifest: pd.DataFrame, config: dict) -> HRReport:
             # No valid pulse signal on any ROI: fail loudly (AGENTS.md §5).
             who = row.get("subject_id", row.get("video_id", f"row{i}"))
             raise NoFace(
-                f"no pulse signal for {who} (bpm is NaN — face never tracked "
+                f"no pulse signal for {who} (bpm is NaN: face never tracked "
                 f"or all-NaN ROI traces)"
             )
         est.append(bpm)
@@ -249,7 +249,7 @@ def write_report(report, config: dict, out_path: str) -> None:
         json.dumps(config, sort_keys=True, default=str).encode()
     ).hexdigest()[:8]
     date = datetime.now().strftime("%Y-%m-%d %H:%M")
-    L = [f"# Run report — {date} — {cfg_hash}", "", "## Setup", ""]
+    L = [f"# Run report: {date}, {cfg_hash}", "", "## Setup", ""]
     for key in (
         "dataset",
         "split_protocol",

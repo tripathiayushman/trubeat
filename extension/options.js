@@ -40,7 +40,7 @@ async function load() {
   secondsInput.value = s.captureSeconds || DEFAULTS.captureSeconds;
   if (isLocal(backendInput.value)) {
     permHint.textContent =
-      "A local backend needs no extra permission — the extension already " +
+      "A local backend needs no extra permission: the extension already " +
       "has access to http://127.0.0.1/* and http://localhost/*.";
   }
 }
@@ -63,7 +63,7 @@ saveBtn.addEventListener("click", async () => {
     const ok = await ensurePermission(backend);
     if (!ok) {
       status.textContent =
-        "Permission to reach that backend was declined — the extension " +
+        "Permission to reach that backend was declined: the extension " +
         "cannot talk to it.";
       status.className = "status err";
       return;
@@ -95,13 +95,13 @@ testBtn.addEventListener("click", async () => {
       status.className = res.hasAnalyze ? "status ok" : "status err";
     } else {
       status.textContent =
-        "Backend unreachable — start it with: trubeat serve — or set the " +
+        "Backend unreachable. Start it with: trubeat serve, or set the " +
         "backend URL in Options.";
       status.className = "status err";
     }
   } catch (err) {
     status.textContent =
-      "Backend unreachable — start it with: trubeat serve — or set the " +
+      "Backend unreachable. Start it with: trubeat serve, or set the " +
       "backend URL in Options.";
     status.className = "status err";
   }

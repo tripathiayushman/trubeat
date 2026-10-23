@@ -16,11 +16,11 @@
   const VERDICT_STYLE = {
     real: {
       accent: "#22c55e",
-      label: "Pulse consistent — likely real",
+      label: "Pulse consistent: likely real",
     },
     fake: {
       accent: "#ef4444",
-      label: "Pulse inconsistent — pixel-replacement pattern",
+      label: "Pulse inconsistent: pixel-replacement pattern",
     },
     inconclusive: {
       accent: "#f59e0b",
@@ -29,7 +29,7 @@
   };
 
   const STANDING_CAVEAT =
-    "Detects face-swaps. Reenactment fakes — Face2Face, NeuralTextures — " +
+    "Detects face-swaps. Reenactment fakes (Face2Face, NeuralTextures) " +
     "keep the original pulse and are out of scope.";
 
   // Exposed for the automated tests (tests/js/extension_test.mjs).
