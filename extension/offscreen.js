@@ -56,7 +56,13 @@ function post(msg) {
 
 function startCapture({ streamId, tabId, seconds }) {
   return new Promise((resolve, reject) => {
-    chrome.mediaStream.getUserMedia({
+    // The offscreen page opens capture through the standard Web API.
+    // (There is no chrome-side wrapper for it in MV3.) Fail with a
+    // readable message when the API is missing instead of a raw TypeError.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Tab capture is unavailable in this browser context.");
+    }
+    navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
         mandatory: {
@@ -129,6 +135,11 @@ function startCapture({ streamId, tabId, seconds }) {
         setTimeout(() => {
           if (recorder && recorder.state === "recording") recorder.stop();
         }, seconds * 1000);
+
+        // The start request must settle: background.js awaits the
+        // OFFSCREEN_START answer, so a capture that actually begins
+        // responds ok. (Failures settle through reject + CAPTURE_ERROR.)
+        resolve({ started: true });
       })
       .catch((err) => {
         cleanup();

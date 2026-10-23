@@ -267,6 +267,128 @@ section("3. offscreen.js — black-frame guard");
   }
 }
 
+// ------------------------------------------------ 3b. tab-capture wiring
+
+section("3b. offscreen.js — tab-capture wiring");
+{
+  // Static: the real API is navigator.mediaDevices, never chrome.mediaStream.
+  const src = readFileSync(join(EXT, "offscreen.js"), "utf-8");
+  check(
+    "offscreen opens the stream via navigator.mediaDevices.getUserMedia",
+    src.includes("navigator.mediaDevices.getUserMedia")
+  );
+  check(
+    "offscreen never touches the non-existent chrome.mediaStream",
+    !src.includes("chrome.mediaStream")
+  );
+
+  // Behavioural: with a stubbed navigator.mediaDevices, starting a capture
+  // passes the streamId through as chromeMediaSourceId and reports success.
+  const trackStub = {
+    addEventListener: () => {},
+    getSettings: () => ({ width: 640, height: 360 }),
+  };
+  const streamStub = { getVideoTracks: () => [trackStub], getTracks: () => [] };
+  const RecorderStub = function () {
+    this.state = "recording";
+    this.start = () => {};
+    this.stop = () => {};
+  };
+  RecorderStub.isTypeSupported = () => true;
+
+  const baseGlobals = {
+    window: { MediaRecorder: RecorderStub },
+    MediaRecorder: RecorderStub,
+    document: { createElement: () => ({ getContext: () => null }) },
+    setInterval: () => 0,
+    setTimeout: () => 0,
+    clearInterval: () => {},
+    clearTimeout: () => {},
+    Blob,
+    console,
+  };
+
+  const listeners = [];
+  const sent = [];
+  const gUM = async (constraints) => {
+    gUM.seen = constraints;
+    return streamStub;
+  };
+  loadScript("offscreen.js", {
+    ...baseGlobals,
+    chrome: chromeStub({
+      runtime: {
+        onMessage: { addListener: (fn) => listeners.push(fn) },
+        sendMessage: async (m) => {
+          sent.push(m);
+          return {};
+        },
+        id: "test",
+      },
+    }),
+    navigator: { mediaDevices: { getUserMedia: gUM } },
+  });
+
+  let response = null;
+  listeners[0](
+    { type: "OFFSCREEN_START", streamId: "sid-123", tabId: 7, seconds: 20 },
+    null,
+    (r) => {
+      response = r;
+    }
+  );
+  await new Promise((r) => setTimeout(r, 30));
+  const c = gUM.seen || {};
+  check(
+    "the streamId flows through as chromeMediaSourceId",
+    c.audio === false &&
+      !!c.video &&
+      !!c.video.mandatory &&
+      c.video.mandatory.chromeMediaSource === "tab" &&
+      c.video.mandatory.chromeMediaSourceId === "sid-123",
+    JSON.stringify(c)
+  );
+  check(
+    "a running capture answers ok, not an error",
+    response && response.ok === true &&
+      !sent.some((m) => m.type === "CAPTURE_ERROR"),
+    JSON.stringify(response)
+  );
+
+  // Guard: a context without mediaDevices must fail with a readable message.
+  const listeners2 = [];
+  const sent2 = [];
+  loadScript("offscreen.js", {
+    ...baseGlobals,
+    chrome: chromeStub({
+      runtime: {
+        onMessage: { addListener: (fn) => listeners2.push(fn) },
+        sendMessage: async (m) => {
+          sent2.push(m);
+          return {};
+        },
+        id: "test",
+      },
+    }),
+    navigator: {},
+  });
+  let response2 = null;
+  listeners2[0](
+    { type: "OFFSCREEN_START", streamId: "sid-x", tabId: 8, seconds: 20 },
+    null,
+    (r) => {
+      response2 = r;
+    }
+  );
+  await new Promise((r) => setTimeout(r, 30));
+  check(
+    "a missing mediaDevices yields the readable guard message",
+    response2 && response2.ok === false &&
+      /Tab capture is unavailable/.test(sent2.map((m) => m.message || "").join(" ")),
+    JSON.stringify({ response: response2, sent: sent2 })
+  );
+}
+
 // ------------------------------------------------ 4. static privacy audit
 
 section("4. static audit — no remote code, no telemetry");
