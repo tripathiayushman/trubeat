@@ -11,6 +11,14 @@ from .errors import LowFps, ShortVideo, UnreadableVideo
 MIN_FPS = 15.0
 MIN_DURATION_S = 10.0
 
+# Chrome's MediaRecorder writes WebM containers whose metadata fps is
+# ~1000 (millisecond-resolution frame timestamps smear into the rate) and
+# whose FRAME_COUNT is meaningless, while the real cadence lives on the
+# frame timestamps (~25-30 fps). open_video cross-checks metadata against
+# CAP_PROP_POS_MSEC and keeps the honest one:
+FPS_DISAGREEMENT = 0.2   # trust metadata only within 20% of the timestamps
+MAX_TRUSTED_FPS = 240.0  # metadata above this (e.g. ~1000) is never trusted
+
 # Frame-height ceiling for decoding. Videos taller than this are downscaled
 # (aspect preserved, never upscaled) so the decoded buffer stays bounded:
 # a 1920x1080x927-frame clip is 5.8 GB as uint8 and OOM-kills the process
@@ -34,10 +42,40 @@ class VideoStream:
     path: str
 
 
+def _choose_fps(
+    fps_meta: float, n: int, first_ms: float | None, last_ms: float | None
+) -> float:
+    """Pick the fps that makes duration and Hz math honest.
+
+    Container metadata is trusted unless it disagrees with the frame
+    timestamps by more than FPS_DISAGREEMENT, or claims more than
+    MAX_TRUSTED_FPS (MediaRecorder's WebM reports ~1000 for a ~28 fps
+    tab capture). The timestamp rate needs at least two frames and a
+    sane, strictly increasing span; otherwise fall back to metadata.
+    """
+    valid_ts = (
+        n > 1
+        and first_ms is not None
+        and last_ms is not None
+        and last_ms > first_ms
+    )
+    if not valid_ts:
+        return float(fps_meta)
+    fps_ts = (n - 1) / ((last_ms - first_ms) / 1000.0)
+    if not np.isfinite(fps_ts) or fps_ts <= 0:
+        return float(fps_meta)
+    disagrees = abs(fps_ts - fps_meta) > FPS_DISAGREEMENT * fps_meta
+    if disagrees or fps_meta > MAX_TRUSTED_FPS:
+        return float(fps_ts)
+    return float(fps_meta)
+
+
 def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> VideoStream:
     """Decode a video file and validate it for rPPG work.
 
-    Reads the TRUE frame rate from the container (never assumes 30).
+    Determines the TRUE frame rate: container metadata, cross-checked
+    against the frame timestamps (see :func:`_choose_fps`), never
+    assumes 30.
     Raises E_UNREADABLE / E_LOW_FPS / E_SHORT_VIDEO on bad inputs.
 
     Videos taller than `frame_height` are downscaled (aspect ratio preserved,
@@ -70,6 +108,11 @@ def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> Vi
         first_ok, first = cap.read()
         if not first_ok:
             raise UnreadableVideo(f"no decodable frames: {path}")
+        # CAP_PROP_POS_MSEC is the PTS of the frame just decoded (verified
+        # on a real MediaRecorder WebM: 0.0 after the first read). The
+        # first/last pair decides honest fps when metadata lies.
+        first_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+        last_ms = first_ms
         h, w = first.shape[0], first.shape[1]
         # Downscale tall frames to bound the decoded buffer (never upscale).
         scale = 1.0
@@ -103,6 +146,7 @@ def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> Vi
                 ok, frame = cap.read()
                 if not ok:
                     break
+                last_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC))
                 frames[i] = _prep(frame)
                 i += 1
             n = i
@@ -116,6 +160,7 @@ def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> Vi
                 ok, frame = cap.read()
                 if not ok:
                     break
+                last_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC))
                 frames_bgr.append(frame)
             bgr = np.stack(frames_bgr, axis=0)  # (T, H, W, 3) BGR uint8
             del frames_bgr
@@ -123,6 +168,7 @@ def open_video(path: str, frame_height: int | None = DEFAULT_FRAME_HEIGHT) -> Vi
             n = int(frames.shape[0])
     finally:
         cap.release()
+    fps = _choose_fps(fps, n, first_ms, last_ms)
     if fps < MIN_FPS:
         raise LowFps(f"fps={fps:.2f} < MIN_FPS={MIN_FPS}")
     duration_s = n / fps

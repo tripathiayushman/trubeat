@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import synth
 
 from trubeat.errors import LowFps, ShortVideo, UnreadableVideo
-from trubeat.ingest import VideoStream, open_video
+from trubeat.ingest import VideoStream, _choose_fps, open_video
 
 
 def test_open_valid_video(tmp_path):
@@ -117,3 +117,33 @@ def test_oversized_decode_raises_instead_of_oom(tmp_path):
             open_video(str(p), frame_height=None)
     finally:
         ingest_mod.MAX_DECODED_BYTES = original
+
+
+# --------------------------------------------------- _choose_fps unit tests
+
+
+def test_choose_fps_keeps_metadata_when_it_agrees():
+    # Sane container: metadata 30, timestamps ~30 -> trust metadata.
+    # 300 frames spanning 0..9900 ms: (300 - 1) / 9.9 s = 30.2 fps.
+    assert _choose_fps(30.0, 300, 0.0, 9900.0) == 30.0
+
+
+def test_choose_fps_wins_when_metadata_is_1000():
+    # A real tab capture: metadata 1000, timestamps ~29 fps -> timestamps.
+    # 571 frames spanning 0..19875 ms: 570 / 19.875 s = 28.68 fps.
+    chosen = _choose_fps(1000.0, 571, 0.0, 19875.0)
+    assert chosen == pytest.approx(28.68, abs=0.01)
+
+
+def test_choose_fps_wins_on_disagreement_beyond_tolerance():
+    # Metadata 25 vs timestamps 40 (> 20% apart): the decider is sane.
+    # 201 frames spanning 0..5000 ms -> 200 / 5 s = 40 fps.
+    assert _choose_fps(25.0, 201, 0.0, 5000.0) == pytest.approx(40.0, abs=0.01)
+
+
+def test_choose_fps_falls_back_without_timestamps():
+    # Timestamps absent/zero (single frame, or all-zero PTS): metadata.
+    assert _choose_fps(30.0, 1, 0.0, 0.0) == 30.0
+    assert _choose_fps(30.0, 480, 0.0, 0.0) == 30.0
+    assert _choose_fps(30.0, 300, None, None) == 30.0
+    assert _choose_fps(30.0, 300, 1200.0, 1200.0) == 30.0
