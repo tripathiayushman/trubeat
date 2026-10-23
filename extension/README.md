@@ -15,7 +15,9 @@ and one set of thresholds.
 1. You click **"Check this tab"**.
 2. The extension records ~20 s of the tab's video (WebM, max width 1280) in
    an offscreen document.
-3. It uploads that clip to your backend and reads back the verdict.
+3. It uploads that clip to your backend (the offscreen document does the
+   POST, because a Blob cannot cross a runtime message) and reads back the
+   verdict from the server-side copy.
 4. A small panel appears in the bottom-right of the page with the verdict,
    the evidence numbers and the standing caveat.
 
@@ -87,8 +89,8 @@ need no extra permission.
 | File | Role |
 |------|------|
 | `manifest.json` | MV3 manifest. Default `host_permissions` are localhost only; other origins are *optional* (requested at save time). |
-| `background.js` | Service worker: owns the capture lifecycle and the backend call. The only file that talks to the network. |
-| `offscreen.html` / `offscreen.js` | The recorder. `getUserMedia` + `MediaRecorder` are unavailable in a service worker, so the recording happens here. It also runs the **black-frame guard**. |
+| `background.js` | Service worker: owns the capture lifecycle and the analysis call against the server-side copy of the clip. It never computes a verdict. |
+| `offscreen.html` / `offscreen.js` | The recorder (and the uploader). `getUserMedia` + `MediaRecorder` are unavailable in a service worker, so the recording happens here. It also runs the **black-frame guard** and the upload POST: a Blob cannot survive a runtime message, so the bytes never leave the document that recorded them. |
 | `overlay.js` | Injected content script: the bottom-right panel, rendered in a shadow DOM so the page cannot restyle it. |
 | `popup.html` / `popup.js` | "Check this tab" button + backend status dot. |
 | `options.html` / `options.js` | Backend URL, capture length, "Test connection". |

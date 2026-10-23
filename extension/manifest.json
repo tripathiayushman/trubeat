@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TrueBeat: rPPG deepfake check",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Check the video playing in this tab for a face-swap-style deepfake, using your own TrueBeat backend. Nothing is stored, nothing is sent anywhere but your configured backend.",
   "minimum_chrome_version": "116",
   "permissions": [

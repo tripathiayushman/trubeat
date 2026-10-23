@@ -3,17 +3,21 @@
  *
  * Responsibilities (and nothing else):
  *   1. own the capture lifecycle: popup -> tabCapture stream id -> offscreen
- *      recorder -> blob;
- *   2. talk to the user's configured backend (Gradio API);
+ *      recorder -> uploaded server path;
+ *   2. talk to the user's configured backend (Gradio API) about the
+ *      server-side copy of the clip;
  *   3. push state into the in-page overlay (shadow DOM panel).
  *
- * No detection logic lives here. The extension never computes a verdict:
- * it uploads the captured clip to the backend and renders whatever the
- * backend answers. Thresholds are never recalibrated client-side.
+ * The upload POST lives in the offscreen document: a Blob cannot survive a
+ * chrome.runtime message (it serialises to {}), so the recorder uploads the
+ * clip and hands this worker a path. No detection logic lives here. The
+ * extension never computes a verdict: it analyses the server-side copy and
+ * renders whatever the backend answers. Thresholds are never recalibrated
+ * client-side.
  *
  * Privacy: the only network destination is the backend URL the user set in
- * Options. Captures are never persisted; they are handed straight to the
- * backend and dropped.
+ * Options. Captures are never persisted; the offscreen document uploads
+ * them straight to the backend and drops them.
  */
 
 const DEFAULTS = {
@@ -70,8 +74,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await pushOverlay(msg.tabId, { state: "capturing", ...msg.payload });
         sendResponse({ ok: true });
         return;
-      case "CAPTURE_DONE":
-        await handleCaptureDone(msg);
+      case "CAPTURE_UPLOADED":
+        await handleCaptureUploaded(msg);
         sendResponse({ ok: true });
         return;
       case "CAPTURE_ERROR":
@@ -164,6 +168,7 @@ async function checkTab(tabId) {
       streamId,
       tabId,
       seconds: settings.captureSeconds,
+      backend: settings.backend,
     });
   } catch (err) {
     current.active = false;
@@ -191,16 +196,20 @@ async function ensureOffscreen() {
   }
 }
 
-/** The recorder finished: upload to the backend and render the answer. */
-async function handleCaptureDone(msg) {
+/**
+ * The offscreen document uploaded the recording itself (a Blob cannot
+ * cross a runtime message, so the message carries the server-side path,
+ * never the clip). Validate that path, then run the analysis flow on it.
+ */
+async function handleCaptureUploaded(msg) {
   const tabId = msg.tabId;
   current.active = false;
 
-  if (!msg.blob || msg.blob.size === 0) {
+  if (typeof msg.serverPath !== "string" || !msg.serverPath) {
     await pushOverlay(tabId, {
       state: "error",
-      title: "Nothing was captured",
-      message: "The recorder produced no data.",
+      title: "Backend error",
+      message: "The backend accepted the recording but returned no usable path.",
     });
     return;
   }
@@ -213,7 +222,7 @@ async function handleCaptureDone(msg) {
 
   let result;
   try {
-    result = await analyseOnBackend(settings.backend, msg.blob, msg.filename);
+    result = await analyseOnBackend(settings.backend, msg.serverPath);
   } catch (err) {
     await pushOverlay(tabId, {
       state: "error",
@@ -226,13 +235,16 @@ async function handleCaptureDone(msg) {
 }
 
 /**
- * Upload the clip and read the verdict back.
- * Mirrors the flow verified against a local `trubeat serve`:
- *   POST /gradio_api/upload            -> ["<path>"]
- *   POST /gradio_api/call/<api_name>   -> {"event_id": "..."}
+ * Analyse the uploaded copy of the clip and read the verdict back.
+ * The offscreen document POSTs the bytes to /gradio_api/upload and hands
+ * this function the returned server path; a Blob cannot cross a runtime
+ * message, so no upload happens here. Mirrors the flow verified against a
+ * local `trubeat serve`:
+ *   GET  /gradio_api/info                        -> named_endpoints
+ *   POST /gradio_api/call/<api_name>             -> {"event_id": "..."}
  *   GET  /gradio_api/call/<api_name>/<event_id>  (SSE) -> data: ["<json>"]
  */
-async function analyseOnBackend(base, blob, filename) {
+async function analyseOnBackend(base, serverPath) {
   const backend = normaliseBackend(base);
 
   // 1. discover the endpoint (the user may point at any TrueBeat backend)
@@ -255,26 +267,12 @@ async function analyseOnBackend(base, blob, filename) {
     );
   }
 
-  // 2. upload
-  const form = new FormData();
-  form.append("files", blob, filename || "capture.webm");
-  const upRes = await fetch(backend + "/gradio_api/upload", {
-    method: "POST",
-    body: form,
-  });
-  if (!upRes.ok) {
-    throw new Error(`Upload failed (HTTP ${upRes.status}).`);
-  }
-  const uploaded = await upRes.json();
-  const path = Array.isArray(uploaded) ? uploaded[0] : uploaded;
-  if (!path) throw new Error("The backend accepted the upload but returned no path.");
-
-  // 3. start the analysis
+  // 2. start the analysis on the server-side copy
   const callRes = await fetch(backend + "/gradio_api/call" + apiName, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      data: [{ path: path, meta: { _type: "gradio.FileData" } }],
+      data: [{ path: serverPath, meta: { _type: "gradio.FileData" } }],
     }),
   });
   if (!callRes.ok) {
@@ -283,7 +281,7 @@ async function analyseOnBackend(base, blob, filename) {
   const { event_id: eventId } = await callRes.json();
   if (!eventId) throw new Error("The backend returned no event id.");
 
-  // 4. read the SSE stream until the "complete" event
+  // 3. read the SSE stream until the "complete" event
   const sseRes = await fetch(
     backend + "/gradio_api/call" + apiName + "/" + eventId
   );

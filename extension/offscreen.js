@@ -8,9 +8,12 @@
  *   - samples frames to a canvas to detect a uniformly black capture
  *     (protected/DRM streams and some players produce black frames),
  *   - reports live progress to the service worker,
- *   - hands the finished blob back (or an honest error).
+ *   - uploads the finished clip itself, because a Blob cannot cross a
+ *     runtime message (it would arrive in the worker as {}), and hands
+ *     background.js the server-side path or an honest error.
  *
- * It never uploads anything itself and never stores the recording.
+ * It never stores the recording: the bytes live only long enough for the
+ * upload POST.
  */
 
 const MAX_WIDTH = 1280;
@@ -27,6 +30,7 @@ globalThis.__trueBeatIsBlackFrame = (mean, std) =>
 
 let recorder = null;
 let stream = null;
+let backend = null;
 let canvas = null;
 let ctx = null;
 let sampleTimer = null;
@@ -54,7 +58,8 @@ function post(msg) {
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
-function startCapture({ streamId, tabId, seconds }) {
+function startCapture({ streamId, tabId, seconds, backend: backendUrl }) {
+  backend = backendUrl || null;
   return new Promise((resolve, reject) => {
     // The offscreen page opens capture through the standard Web API.
     // (There is no chrome-side wrapper for it in MV3.) Fail with a
@@ -110,8 +115,9 @@ function startCapture({ streamId, tabId, seconds }) {
             });
             return;
           }
-          post({
-            type: "CAPTURE_DONE",
+          // The Blob cannot cross a runtime message (it serialises to {}),
+          // so this document uploads the recording and reports the path.
+          uploadCapture({
             tabId,
             blob,
             filename: "truebeat-capture.webm",
@@ -152,6 +158,75 @@ function startCapture({ streamId, tabId, seconds }) {
         );
       });
   });
+}
+
+/**
+ * Upload the finished recording and report the server-side path.
+ * This runs here because the Blob lives here: a runtime message is
+ * JSON-serialised, so a Blob would arrive in the service worker as {}.
+ */
+async function uploadCapture({ tabId, blob, filename }) {
+  if (!backend) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: "No backend URL was given to the recorder.",
+    });
+    return;
+  }
+  const form = new FormData();
+  form.append("files", blob, filename);
+  let res;
+  try {
+    res = await fetch(backend + "/gradio_api/upload", {
+      method: "POST",
+      body: form,
+    });
+  } catch (err) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message:
+        "The backend was unreachable while storing the recording (" +
+        String((err && err.message) || err) +
+        ").",
+    });
+    return;
+  }
+  if (!res.ok) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: `The backend refused the recording (HTTP ${res.status}). Is \`trubeat serve\` running?`,
+    });
+    return;
+  }
+  let uploaded = null;
+  try {
+    uploaded = await res.json();
+  } catch (_) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: "The backend answered the upload with unreadable JSON.",
+    });
+    return;
+  }
+  const serverPath = Array.isArray(uploaded) ? uploaded[0] : uploaded;
+  if (typeof serverPath !== "string" || !serverPath) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: "The backend accepted the upload but returned no file path.",
+    });
+    return;
+  }
+  post({ type: "CAPTURE_UPLOADED", tabId, serverPath, filename });
 }
 
 function fail(message) {
