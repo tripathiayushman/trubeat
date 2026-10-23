@@ -574,7 +574,15 @@ def build_demo(
         caveat = gr.Markdown(
             f"**Caveat: always applies:** {CAVEAT}", elem_id="tb-caveat"
         )
-        btn.click(run, inputs=[video], outputs=[verdict, detail, evidence, plot, caveat])
+        # One loader, one place: the Plot panel is the output the user
+        # watches. Without this Gradio renders the progress overlay on every
+        # output (a duplicate sat over the caveat). Outputs stay unchanged.
+        btn.click(
+            run,
+            inputs=[video],
+            outputs=[verdict, detail, evidence, plot, caveat],
+            show_progress_on=[plot],
+        )
 
         # Thin, machine-readable endpoint for the browser extension
         # (Phase 4b). It only *packages* what analyze_video already
