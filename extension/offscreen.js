@@ -9,11 +9,14 @@
  *     (protected/DRM streams and some players produce black frames),
  *   - reports live progress to the service worker,
  *   - uploads the finished clip itself, because a Blob cannot cross a
- *     runtime message (it would arrive in the worker as {}), and hands
- *     background.js the server-side path or an honest error.
+ *     runtime message (it would arrive in the worker as {}),
+ *   - runs the whole backend conversation afterwards too: endpoint
+ *     discovery, the analysis call, and the SSE wait with
+ *     reconnect-resume (a service worker would be idle-killed mid-stream),
+ *     reporting ANALYSIS_RESULT with the verdict or an honest CAPTURE_ERROR.
  *
- * It never stores the recording: the bytes live only long enough for the
- * upload POST.
+ * It never stores the recording: the bytes live only until the upload POST
+ * finishes and the analysis reads the server-side copy.
  */
 
 const MAX_WIDTH = 1280;
@@ -23,6 +26,15 @@ const BLACK_LUMA_MAX = 12;
 const BLACK_STD_MAX = 6;
 // Consecutive black samples before we give up on the capture.
 const BLACK_STRIKES = 3;
+
+// The analysis wait lives here, not in the service worker: a stream that
+// sits idle while the model computes looks like idleness to the ~30 s
+// worker idle leash, and a mid-analysis drop must never surface Chrome's
+// raw "network error". Gradio replays the event stream for a completed
+// event, so a dropped wait can simply re-GET the same event URL.
+const SSE_RETRIES = 12;
+const SSE_RETRY_DELAY_MS = 1500;
+const ANALYZE_DEADLINE_MS = 6 * 60 * 1000;
 
 // Exposed for the automated tests (tests/js/extension_test.mjs).
 globalThis.__trueBeatIsBlackFrame = (mean, std) =>
@@ -39,19 +51,38 @@ let blackStrikes = 0;
 let samples = 0;
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || msg.type !== "OFFSCREEN_START") return;
-  startCapture(msg)
-    .then(() => sendResponse({ ok: true }))
-    .catch((err) => {
-      chrome.runtime.sendMessage({
+  if (!msg) return;
+  if (msg.type === "OFFSCREEN_START") {
+    startCapture(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        chrome.runtime.sendMessage({
+          type: "CAPTURE_ERROR",
+          tabId: msg.tabId,
+          title: "Can't capture this tab",
+          message: String((err && err.message) || err),
+        });
+        sendResponse({ ok: false, error: String(err) });
+      });
+    return true;
+  }
+  if (msg.type === "ANALYZE") {
+    // Settle at once: the result (or an honest error) is posted as a
+    // runtime message when the long analysis wait really ends.
+    analyzeClip(msg).catch((err) => {
+      post({
         type: "CAPTURE_ERROR",
         tabId: msg.tabId,
-        title: "Can't capture this tab",
-        message: String((err && err.message) || err),
+        title: "Backend error",
+        message:
+          "The analysis failed inside the extension (" +
+          String((err && err.message) || err) +
+          ").",
       });
-      sendResponse({ ok: false, error: String(err) });
     });
-  return true;
+    sendResponse({ ok: true });
+    return true;
+  }
 });
 
 function post(msg) {
@@ -227,6 +258,236 @@ async function uploadCapture({ tabId, blob, filename }) {
     return;
   }
   post({ type: "CAPTURE_UPLOADED", tabId, serverPath, filename });
+}
+
+/**
+ * Analyse the uploaded copy of the clip and wait for the verdict.
+ * This runs here because the wait itself lives here: a service worker is
+ * idle-killed after ~30 s, and an in-flight analysis stream looks exactly
+ * like idleness — the model is computing, so no bytes arrive. The stream
+ * reader also never surfaces Chrome's raw "network error": a dropped or
+ * ended stream is retried by re-GET of the same event URL (Gradio replays
+ * the output of a completed event), and only a readable summary ever
+ * reaches the overlay.
+ */
+async function analyzeClip({ tabId, serverPath, backend: backendUrl }) {
+  const base = backendUrl || backend;
+  if (!base || typeof serverPath !== "string" || !serverPath) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: "The analysis request was incomplete.",
+    });
+    return;
+  }
+
+  // 1. discover the endpoint (the user may point at any TrueBeat backend)
+  let infoRes;
+  try {
+    infoRes = await fetch(base + "/gradio_api/info", { cache: "no-store" });
+  } catch (_) {
+    postAnalyzeUnreachable(tabId, base);
+    return;
+  }
+  if (!infoRes.ok) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message:
+        `The backend at ${base} answered HTTP ${infoRes.status}. ` +
+        "Is \`trubeat serve\` running?",
+    });
+    return;
+  }
+  let info = null;
+  try {
+    info = await infoRes.json();
+  } catch (_) {
+    info = null;
+  }
+  const endpoints = Object.keys((info && info.named_endpoints) || {});
+  const apiName = endpoints.includes("/analyze_video")
+    ? "/analyze_video"
+    : endpoints.find((e) => e.endsWith("analyze_video"));
+  if (!apiName) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message:
+        "This backend does not expose the analyze_video endpoint " +
+        `(found: ${endpoints.join(", ") || "none"}).`,
+    });
+    return;
+  }
+
+  // 2. start the analysis on the server-side copy
+  let callRes;
+  try {
+    callRes = await fetch(base + "/gradio_api/call" + apiName, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        data: [{ path: serverPath, meta: { _type: "gradio.FileData" } }],
+      }),
+    });
+  } catch (_) {
+    postAnalyzeUnreachable(tabId, base);
+    return;
+  }
+  if (!callRes.ok) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: `The backend rejected the request (HTTP ${callRes.status}).`,
+    });
+    return;
+  }
+  let eventId = null;
+  try {
+    eventId = (await callRes.json()).event_id;
+  } catch (_) {
+    eventId = null;
+  }
+  if (!eventId) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: "The backend returned no event id.",
+    });
+    return;
+  }
+
+  // 3. wait for the result, reconnecting when the stream drops
+  const deadline = Date.now() + ANALYZE_DEADLINE_MS;
+  let attempts = 0;
+  let immediate = null;
+  while (attempts < SSE_RETRIES && Date.now() < deadline) {
+    attempts += 1;
+    const attempt = await readEventStream(base, apiName, eventId);
+    if (attempt.outcome === "result") {
+      post({ type: "ANALYSIS_RESULT", tabId, result: attempt.verdict });
+      return;
+    }
+    if (attempt.outcome === "error") {
+      immediate = attempt.message;
+      break;
+    }
+    // outcome "drop": the stream errored or ended without a result —
+    // worth re-GETting the event (Gradio replays a completed event).
+    if (attempts < SSE_RETRIES && Date.now() + SSE_RETRY_DELAY_MS <= deadline) {
+      await delay(SSE_RETRY_DELAY_MS);
+    }
+  }
+  if (immediate !== null) {
+    post({
+      type: "CAPTURE_ERROR",
+      tabId,
+      title: "Backend error",
+      message: immediate,
+    });
+    return;
+  }
+  post({
+    type: "CAPTURE_ERROR",
+    tabId,
+    title: "Backend error",
+    message:
+      "The connection to your backend dropped while analysing (retried " +
+      attempts +
+      " times). Is `trubeat serve` still running?",
+  });
+}
+
+/**
+ * One read of the SSE stream the backend opened for this analysis.
+ *   { outcome: "result", verdict }  the verdict arrived;
+ *   { outcome: "drop" }             the stream errored or ended without
+ *                                   one (retryable: re-GET the same URL);
+ *   { outcome: "error", message }   the backend reported an explicit error
+ *                                   on the stream itself (not retryable).
+ */
+async function readEventStream(base, apiName, eventId) {
+  let res;
+  try {
+    res = await fetch(base + "/gradio_api/call" + apiName + "/" + eventId);
+  } catch (_) {
+    return { outcome: "drop" };
+  }
+  if (!res.ok || !res.body || !res.body.getReader) {
+    return { outcome: "drop" };
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (_) {
+      return { outcome: "drop" };
+    }
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(payload);
+      } catch (_) {
+        continue;
+      }
+      if (Array.isArray(parsed)) {
+        // Gradio wraps the return value: ["<json string>"] -> parse the inner one
+        const inner = parsed[0];
+        if (typeof inner === "string") {
+          try {
+            return { outcome: "result", verdict: JSON.parse(inner) };
+          } catch (_) {
+            return {
+              outcome: "result",
+              verdict: {
+                verdict: "inconclusive",
+                headline: "Unreadable backend reply",
+              },
+            };
+          }
+        }
+        return { outcome: "result", verdict: inner };
+      }
+      if (parsed && parsed.error) {
+        return {
+          outcome: "error",
+          message: "Backend error: " + JSON.stringify(parsed.error),
+        };
+      }
+    }
+  }
+  return { outcome: "drop" };
+}
+
+/** Wait out the reconnect delay; the budget is bounded by SSE_RETRIES. */
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Honest "cannot reach the backend" message for the analysis chain. */
+function postAnalyzeUnreachable(tabId, base) {
+  post({
+    type: "CAPTURE_ERROR",
+    tabId,
+    title: "Backend error",
+    message: `The backend at ${base} was unreachable. Is \`trubeat serve\` running?`,
+  });
 }
 
 function fail(message) {

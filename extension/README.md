@@ -16,8 +16,10 @@ and one set of thresholds.
 2. The extension records ~20 s of the tab's video (WebM, max width 1280) in
    an offscreen document.
 3. It uploads that clip to your backend (the offscreen document does the
-   POST, because a Blob cannot cross a runtime message) and reads back the
-   verdict from the server-side copy.
+   POST, because a Blob cannot cross a runtime message), then waits for the
+   verdict there too: an analysis stream that sits idle for tens of seconds
+   would be dropped by the service worker's ~30-second idle leash, while the
+   offscreen document holds the connection and resumes it if it drops.
 4. A small panel appears in the bottom-right of the page with the verdict,
    the evidence numbers and the standing caveat.
 
@@ -89,8 +91,8 @@ need no extra permission.
 | File | Role |
 |------|------|
 | `manifest.json` | MV3 manifest. Default `host_permissions` are localhost only; other origins are *optional* (requested at save time). |
-| `background.js` | Service worker: owns the capture lifecycle and the analysis call against the server-side copy of the clip. It never computes a verdict. |
-| `offscreen.html` / `offscreen.js` | The recorder (and the uploader). `getUserMedia` + `MediaRecorder` are unavailable in a service worker, so the recording happens here. It also runs the **black-frame guard** and the upload POST: a Blob cannot survive a runtime message, so the bytes never leave the document that recorded them. |
+| `background.js` | Service worker: owns the capture lifecycle and relays the verdict into the overlay. It never holds a long network wait (a service worker idles out after ~30 s) and never computes a verdict; the backend conversation lives in `offscreen.js`. |
+| `offscreen.html` / `offscreen.js` | The recorder and the whole backend conversation. `getUserMedia` + `MediaRecorder` are unavailable in a service worker, so the recording happens here. It also runs the **black-frame guard**, the upload POST (a Blob cannot survive a runtime message), and the analysis wait with reconnect-resume: a service worker would be idle-killed mid-stream, exactly while the backend is computing. |
 | `overlay.js` | Injected content script: the bottom-right panel, rendered in a shadow DOM so the page cannot restyle it. |
 | `popup.html` / `popup.js` | "Check this tab" button + backend status dot. |
 | `options.html` / `options.js` | Backend URL, capture length, "Test connection". |
@@ -149,8 +151,10 @@ Run through this after loading the extension.
 - [ ] **DRM stream** (a Netflix/DRM-protected player) → "Can't capture this
       video: protected stream (DRM) or black frames", and **nothing is
       uploaded**.
-- [ ] **Backend error** (kill the backend mid-analysis) → the backend's own
-      message is shown.
+- [ ] **Backend error** (kill the backend mid-analysis) → a dropped stream
+      is retried (Gradio replays a completed event); when the retries run
+      out, an honest connection message is shown, never a raw network
+      error. An explicit backend error is surfaced verbatim.
 
 **C. Privacy**
 - [ ] DevTools → Network: while checking a tab, the **only** requests are to

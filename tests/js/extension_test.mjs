@@ -3,11 +3,14 @@
  *
  * These load the *shipped* extension files (not copies) and exercise the
  * real code paths:
- *   1. background.js — the Gradio API client (upload -> call -> SSE) against
- *      a live `trubeat serve`, plus the backend-unreachable path;
+ *   1. offscreen.js — the backend client (upload -> call -> SSE with
+ *      reconnect-resume, 1.0.3) against a live `trubeat serve`, plus the
+ *      backend-unreachable path;
  *   2. overlay.js — the verdict -> colour/copy mapping and the standing
  *      caveat wording;
- *   3. offscreen.js — the black-frame heuristic;
+ *   3. offscreen.js — the recorder: black-frame guard, tab-capture wiring,
+ *      the whole bus from CAPTURE_UPLOADED to the result overlay, and the
+ *      analysis wait itself (retries, honest final error);
  *   4. a static audit: no remote code, no telemetry hosts, no requests to
  *      anything but the configured backend.
  *
@@ -95,41 +98,82 @@ function chromeStub(overrides = {}) {
 /** Load a classic extension script into a fresh context with our stubs. */
 function loadScript(file, globals) {
   const src = readFileSync(join(EXT, file), "utf-8");
-  const fn = new Function(
-    ...Object.keys(globals),
-    `${src}\n;return typeof analyseOnBackend !== "undefined" ? analyseOnBackend : undefined;`
-  );
+  const fn = new Function(...Object.keys(globals), `${src}\n;`);
   return fn(...Object.values(globals));
 }
 
-// ------------------------------------------------- 1. background API client
+// -------------------------------------------- 1. the backend client (ANALYZE)
 
-section("1. background.js — Gradio API client");
+section("1. offscreen.js — the backend client (ANALYZE against a backend)");
 {
-  const globals = {
-    chrome: chromeStub(),
-    fetch,
-    FormData,
-    AbortController,
-    console,
-    URL,
-    Blob,
+  // Since 1.0.3 the whole backend conversation lives in the offscreen
+  // document (background.js only relays). The tests drive the shipped
+  // ANALYZE handler directly and read what it posts to the runtime.
+  const listeners = [];
+  const sent = [];
+  const trackStub = {
+    addEventListener: () => {},
+    getSettings: () => ({ width: 640, height: 360 }),
   };
-  const analyseOnBackend = loadScript("background.js", globals);
+  const streamStub = { getVideoTracks: () => [trackStub], getTracks: () => [] };
+  const RecorderStub = function () {};
+  RecorderStub.isTypeSupported = () => true;
+
+  loadScript("offscreen.js", {
+    chrome: chromeStub({
+      runtime: {
+        onMessage: { addListener: (fn) => listeners.push(fn) },
+        sendMessage: async (m) => {
+          sent.push(rtMessage(m));
+          return {};
+        },
+        id: "test",
+      },
+    }),
+    navigator: { mediaDevices: { getUserMedia: async () => streamStub } },
+    window: { MediaRecorder: RecorderStub },
+    MediaRecorder: RecorderStub,
+    document: { createElement: () => ({ getContext: () => null }) },
+    setInterval: () => 0,
+    setTimeout: (fn) => (fn(), 0), // collapse the reconnect waits
+    clearInterval: () => {},
+    clearTimeout: () => {},
+    fetch, // the real fetch: a dead backend first, a live one further down
+    FormData,
+    Blob,
+    TextDecoder,
+    console,
+  });
+
+  // Run one analysis and return the message it posted to the runtime.
+  const analyse = async (serverPath, backendUrl, capMs = 540000) => {
+    const before = sent.length;
+    const startedAt = Date.now();
+    listeners[0](
+      { type: "ANALYZE", tabId: 7, serverPath, backend: backendUrl },
+      null,
+      () => {}
+    );
+    for (;;) {
+      if (sent.length > before) return sent[sent.length - 1];
+      if (Date.now() - startedAt > capMs) return null;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
 
   // Backend unreachable -> an honest error, never a fabricated verdict.
-  const dead = await analyseOnBackend.call(
-    { normaliseBackend: (u) => u },
-    "http://127.0.0.1:9",
-    "/tmp/gradio/truebeat/dead/dead.webm"
-  ).then(
-    () => null,
-    (e) => e
+  const posted = await analyse(
+    "/tmp/gradio/truebeat/dead/dead.webm",
+    "http://127.0.0.1:9"
   );
   check(
-    "unreachable backend rejects with an error",
-    dead !== null && /unreachable|HTTP|fetch failed|ECONNREFUSED/i.test(String(dead)),
-    String(dead).slice(0, 120)
+    "unreachable backend posts a readable backend error",
+    posted &&
+      posted.type === "CAPTURE_ERROR" &&
+      /unreachable|HTTP|refused|fetch failed|ECONNREFUSED/i.test(
+        posted.message || ""
+      ),
+    JSON.stringify(posted)
   );
 
   if (BACKEND) {
@@ -150,11 +194,11 @@ section("1. background.js — Gradio API client");
           "start one with `trubeat serve` to exercise them"
       );
     } else {
-      let result = null;
-      let error = null;
+      let apiResult = null;
+      let liveError = null;
       try {
-        // The harness uploads like the extension does (the offscreen
-        // document owns the POST) and then analyses the server-side copy.
+        // The harness uploads exactly like the extension's offscreen
+        // document, then analyses the server-side copy through ANALYZE.
         const form = new FormData();
         form.append(
           "files",
@@ -167,19 +211,26 @@ section("1. background.js — Gradio API client");
         });
         if (!up.ok) throw new Error("HTTP " + up.status + " while uploading");
         const path = (await up.json())[0];
-        result = await analyseOnBackend.call(
-          { normaliseBackend: (u) => u },
-          BACKEND,
-          path
-        );
+        apiResult = await analyse(path, BACKEND);
       } catch (e) {
-        error = e;
+        liveError = e;
       }
-      if (error) {
+      const result =
+        apiResult && apiResult.type === "ANALYSIS_RESULT"
+          ? apiResult.result
+          : null;
+      const postedError =
+        apiResult && apiResult.type === "CAPTURE_ERROR"
+          ? apiResult.message
+          : null;
+      if (liveError || postedError || !result) {
         check(
           "live backend returns a verdict",
           false,
-          "backend error: " + String(error.message || error).slice(0, 200)
+          "backend error: " +
+            String(
+              (liveError && liveError.message) || postedError || "no result"
+            ).slice(0, 200)
         );
       } else {
         check("live backend returns a verdict", !!result, "no result");
@@ -408,15 +459,20 @@ section("3b. offscreen.js — tab-capture wiring");
   );
 }
 
-// ------------------------- 3c. capture-to-backend pipeline (1.0.2 bug) ----
+// ---------------------------------------------- 3c. capture -> verdict bus
 
-section("3c. capture-to-backend pipeline (Blobs stay in the offscreen document)");
+section("3c. capture -> upload -> ANALYZE -> result (the whole bus)");
 {
-  // The reported bug: offscreen.js posted the recorded Blob inside a
-  // CAPTURE_DONE runtime message; the browser JSON-serialises such a message
-  // and the Blob arrives in background.js as {}, so FormData.append threw.
-  // The honest model: a Blob never crosses the runtime. The offscreen
-  // document uploads the clip itself and reports only a server path.
+  // The two reported bugs, modelled together. The bus mimics the browser:
+  // every runtime post is JSON-serialised and handed to every registered
+  // listener (background's own echo is honestly harmless — neither script
+  // has a case for the other's request types).
+  //   1. a recorded Blob must never cross the runtime (it would arrive in
+  //      background.js as {}), so the offscreen document uploads;
+  //   2. the analysis wait lives in the offscreen document too: background
+  //      hands over the server path (ANALYZE) and relays the verdict
+  //      (ANALYSIS_RESULT) — an idle SSE stream would be dropped by the
+  //      service worker's ~30 s idle leash.
 
   const trackStub = {
     addEventListener: () => {},
@@ -432,108 +488,64 @@ section("3c. capture-to-backend pipeline (Blobs stay in the offscreen document)"
   };
   RecorderStub.isTypeSupported = () => true;
 
-  const baseGlobals = {
-    window: { MediaRecorder: RecorderStub },
-    MediaRecorder: RecorderStub,
-    document: { createElement: () => ({ getContext: () => null }) },
-    setInterval: () => 0,
-    setTimeout: () => 0,
-    clearInterval: () => {},
-    clearTimeout: () => {},
-    Blob,
-    console,
-  };
-
-  // --- offscreen: a real Blob is uploaded; what crosses the runtime is a
-  // --- serialisable server path, never the clip.
-  const listenersO = [];
-  const sentO = [];
-  const fetchLog = [];
-  const gUM = async (constraints) => {
-    gUM.seen = constraints;
-    return streamStub;
-  };
-  loadScript("offscreen.js", {
-    ...baseGlobals,
-    fetch: async (url, opts) => {
-      fetchLog.push({ url: String(url), body: opts && opts.body });
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ["/tmp/gradio/truebeat/uploads/cap.webm"],
-      };
-    },
-    FormData,
-    chrome: chromeStub({
-      runtime: {
-        onMessage: { addListener: (fn) => listenersO.push(fn) },
-        sendMessage: async (m) => {
-          sentO.push(rtMessage(m));
-          return {};
-        },
-        id: "test",
-      },
-    }),
-    navigator: { mediaDevices: { getUserMedia: gUM } },
-  });
-
-  listenersO[0](
-    {
-      type: "OFFSCREEN_START",
-      streamId: "sid-123",
-      tabId: 7,
-      seconds: 20,
-      backend: "http://127.0.0.1:9",
-    },
-    null,
-    () => {}
-  );
-  await new Promise((r) => setTimeout(r, 30));
-  recorderInstance.ondataavailable({
-    data: new Blob([new Uint8Array(96).fill(7)], { type: "video/webm" }),
-  });
-  recorderInstance.onstop();
-  await new Promise((r) => setTimeout(r, 60));
-
-  check(
-    "offscreen uploads the clip to the backend's upload endpoint",
-    fetchLog.some(
-      (f) =>
-        f.url === "http://127.0.0.1:9/gradio_api/upload" &&
-        f.body instanceof FormData
-    ),
-    JSON.stringify(fetchLog.map((f) => f.url))
-  );
-  const lastFromOffscreen = sentO[sentO.length - 1];
-  check(
-    "the message crossing the runtime is a serialisable server path",
-    lastFromOffscreen &&
-      lastFromOffscreen.type === "CAPTURE_UPLOADED" &&
-      typeof lastFromOffscreen.serverPath === "string" &&
-      lastFromOffscreen.serverPath.length > 0 &&
-      lastFromOffscreen.tabId === 7,
-    JSON.stringify(lastFromOffscreen)
-  );
-  check(
-    "no blob slips through the runtime message",
-    lastFromOffscreen && !("blob" in lastFromOffscreen),
-    JSON.stringify(lastFromOffscreen)
-  );
-
-  // --- background: fed that serialised message, with stubbed backend
-  // --- fetches, it completes call + SSE and pushes the result overlay.
-  const listenersB = [];
-  const statesB = [];
-  const stubSettings = { backend: "http://127.0.0.1:9", captureSeconds: 20 };
-  const callsB = [];
+  const listeners = []; // every registered listener, both documents
+  const overlays = []; // TRUEBEAT_STATE traffic into the content script
+  const deliveries = []; // everything that crossed the runtime
+  const fetchLog = []; // backend traffic from the offscreen document
+  const settings = { backend: "http://127.0.0.1:9", captureSeconds: 20 };
   const verdict = {
     verdict: "fake",
     headline: "Pulse inconsistent: pixel-replacement pattern detected",
     score: 0.91,
     caveat: "Detects face-swap-style fakes: reenactment fakes keep the pulse.",
   };
-  const fetchForBackground = async (url, opts) => {
+
+  const bus = chromeStub({
+    runtime: {
+      onMessage: { addListener: (fn) => listeners.push(fn) },
+      sendMessage: async (m) => {
+        const delivered = rtMessage(m);
+        deliveries.push(delivered);
+        for (const fn of [...listeners]) {
+          try {
+            fn(delivered, null, () => {});
+          } catch (_) {
+            /* one broken handler never kills the bus */
+          }
+        }
+        return {};
+      },
+      id: "test",
+    },
+    tabs: {
+      sendMessage: async (_tab, m) => {
+        overlays.push(rtMessage(m));
+        return {};
+      },
+      query: async () => [],
+    },
+    storage: {
+      local: {
+        get: async (keys) => ({ ...keys, ...settings }),
+        set: async (o) => Object.assign(settings, o),
+      },
+    },
+  });
+
+  const fetchStub = async (url, opts) => {
     const u = String(url);
+    fetchLog.push({
+      url: u,
+      body: opts && opts.body,
+      method: (opts && opts.method) || "GET",
+    });
+    if (u.endsWith("/gradio_api/upload")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ["/tmp/gradio/truebeat/uploads/cap.webm"],
+      };
+    }
     if (u.endsWith("/gradio_api/info")) {
       return {
         ok: true,
@@ -542,96 +554,400 @@ section("3c. capture-to-backend pipeline (Blobs stay in the offscreen document)"
       };
     }
     if (u.endsWith("/gradio_api/call/analyze_video")) {
-      callsB.push(JSON.parse(opts.body));
       return { ok: true, status: 200, json: async () => ({ event_id: "ev-1" }) };
     }
     if (u.includes("/gradio_api/call/analyze_video/")) {
-      const bytes = new TextEncoder().encode(
-        `event: complete\ndata: ${JSON.stringify([JSON.stringify(verdict)])}\n\n`
-      );
-      let tick = 0;
       return {
         ok: true,
         status: 200,
         body: {
-          getReader: () => ({
-            read: async () =>
-              tick++ === 0
-                ? { done: false, value: bytes }
-                : { done: true },
-          }),
+          getReader: () => {
+            let tick = 0;
+            return {
+              read: async () => {
+                if (tick++ === 0) {
+                  return {
+                    done: false,
+                    value: new TextEncoder().encode(
+                      `event: complete\ndata: ${JSON.stringify([JSON.stringify(verdict)])}\n\n`
+                    ),
+                  };
+                }
+                return { done: true };
+              },
+            };
+          },
         },
       };
     }
     return { ok: false, status: 500, json: async () => ({}) };
   };
-  loadScript("background.js", {
-    chrome: chromeStub({
-      storage: {
-        local: {
-          get: async (keys) => ({ ...keys, ...stubSettings }),
-          set: async (o) => Object.assign(stubSettings, o),
-        },
-      },
-      runtime: {
-        onMessage: { addListener: (fn) => listenersB.push(fn) },
-        sendMessage: async (m) => {
-          sentO.push(rtMessage(m));
-          return {};
-        },
-        id: "test",
-      },
-      tabs: {
-        sendMessage: async (_tab, m) => {
-          statesB.push(rtMessage(m));
-          return {};
-        },
-        query: async () => [],
-      },
-    }),
-    fetch: fetchForBackground,
-    AbortController,
-    console,
-    URL,
+
+  const scriptGlobals = (navigator) => ({
+    chrome: bus,
+    fetch: fetchStub,
+    FormData,
     Blob,
+    TextDecoder,
+    TextEncoder,
+    console,
+    navigator,
+    window: { MediaRecorder: RecorderStub },
+    MediaRecorder: RecorderStub,
+    document: { createElement: () => ({ getContext: () => null }) },
+    setInterval: () => 0,
+    setTimeout: (fn) => (fn(), 0), // collapse timers; waits settle at once
+    clearInterval: () => {},
+    clearTimeout: () => {},
   });
 
-  // The reported bug, modelled honestly: feed background the serialised
-  // remains of a blob message ({}), not a real Blob.
-  listenersB[0](
-    { type: "CAPTURE_UPLOADED", tabId: 7, blob: {}, filename: "x.webm" },
-    null,
-    () => {}
+  loadScript(
+    "offscreen.js",
+    scriptGlobals({ mediaDevices: { getUserMedia: async () => streamStub } })
   );
-  await new Promise((r) => setTimeout(r, 40));
-  const badState = statesB[statesB.length - 1];
-  check(
-    "an unusable server path pushes a readable backend error",
-    badState && badState.type === "TRUEBEAT_STATE" &&
-      badState.payload.state === "error" &&
-      badState.payload.title === "Backend error",
-    JSON.stringify(badState)
-  );
+  loadScript("background.js", scriptGlobals(undefined));
 
-  listenersB[0](lastFromOffscreen, null, () => {});
-  await new Promise((r) => setTimeout(r, 80));
-  const okState = statesB[statesB.length - 1];
-  check(
-    "background calls the backend with the uploaded server path",
-    callsB.length === 1 &&
-      callsB[0].data &&
-      callsB[0].data[0] &&
-      callsB[0].data[0].path === lastFromOffscreen.serverPath,
-    JSON.stringify(callsB)
-  );
-  check(
-    "background pushes the result overlay from the serialised message",
-    okState && okState.type === "TRUEBEAT_STATE" &&
-      okState.payload.state === "result" &&
-      okState.payload.result &&
-      okState.payload.result.verdict === "fake",
-    JSON.stringify(okState)
-  );
+  const dispatch = (m) => {
+    const d = rtMessage(m);
+    deliveries.push(d);
+    for (const fn of [...listeners]) {
+      try {
+        fn(d, null, () => {});
+      } catch (_) {
+        /* same tolerance as the bus */
+      }
+    }
+  };
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // The 1.0.2 bug, modelled straight: a message whose Blob serialised to {}.
+  {
+    overlays.length = 0;
+    fetchLog.length = 0;
+    dispatch({ type: "CAPTURE_UPLOADED", tabId: 7, blob: {}, filename: "x.webm" });
+    await settle(60);
+    const badState = overlays[overlays.length - 1];
+    check(
+      "an unusable server path pushes a readable backend error",
+      badState && badState.type === "TRUEBEAT_STATE" &&
+        badState.payload.state === "error" &&
+        badState.payload.title === "Backend error",
+      JSON.stringify(badState)
+    );
+    check(
+      "no backend traffic was generated for the unusable path",
+      fetchLog.length === 0,
+      JSON.stringify(fetchLog.map((f) => f.url))
+    );
+  }
+
+  // The fixed pipeline, end to end on the bus: record -> upload -> path ->
+  // ANALYZE -> SSE -> ANALYSIS_RESULT -> result overlay.
+  {
+    overlays.length = 0;
+    fetchLog.length = 0;
+    deliveries.length = 0;
+    dispatch({
+      type: "OFFSCREEN_START",
+      streamId: "sid-123",
+      tabId: 7,
+      seconds: 20,
+      backend: settings.backend,
+    });
+    await settle(50);
+    recorderInstance.ondataavailable({
+      data: new Blob([new Uint8Array(96).fill(7)], { type: "video/webm" }),
+    });
+    recorderInstance.onstop();
+    const startedAt = Date.now();
+    let final = null;
+    for (;;) {
+      final = overlays[overlays.length - 1] || null;
+      if (
+        final &&
+        final.payload &&
+        (final.payload.state === "result" || final.payload.state === "error")
+      ) {
+        break;
+      }
+      if (Date.now() - startedAt > 10000) break;
+      await settle(50);
+    }
+    check(
+      "the overlay was told the analysis is running before any verdict",
+      overlays.some((m) => m.payload && m.payload.state === "analyzing"),
+      JSON.stringify(overlays.map((m) => m.payload && m.payload.state))
+    );
+    check(
+      "the analysis call used the uploaded server path",
+      fetchLog.some(
+        (f) =>
+          f.url === "http://127.0.0.1:9/gradio_api/call/analyze_video" &&
+          typeof f.body === "string" &&
+          JSON.parse(f.body).data[0].path ===
+            "/tmp/gradio/truebeat/uploads/cap.webm"
+      ),
+      JSON.stringify(fetchLog.map((f) => f.url))
+    );
+    check(
+      "background relays the posted result into the overlay",
+      final &&
+        final.type === "TRUEBEAT_STATE" &&
+        final.payload.state === "result" &&
+        final.payload.result &&
+        final.payload.result.verdict === "fake",
+      JSON.stringify(final)
+    );
+    check(
+      "no blob ever crossed the runtime",
+      deliveries.every((d) => !("blob" in d)) &&
+        deliveries.some(
+          (d) => d.type === "CAPTURE_UPLOADED" && typeof d.serverPath === "string"
+        ) &&
+        deliveries.some((d) => d.type === "ANALYZE") &&
+        deliveries.some((d) => d.type === "ANALYSIS_RESULT"),
+      JSON.stringify(deliveries.map((d) => ({ type: d.type, keys: Object.keys(d) })))
+    );
+  }
+}
+
+// ---------------------------------------------- 3d. the analysis wait (1.0.3)
+
+section("3d. offscreen.js — analysis wait with reconnect-resume");
+{
+  // The 1.0.3 bug: the SSE wait ran in background.js, a service worker.
+  // A mid-analysis drop surfaced Chrome's raw "network error". Now the
+  // wait runs in the offscreen document and re-GETs the same event URL
+  // (Gradio replays the output of a completed event); a retry success and
+  // an honest final error are modelled below.
+
+  const fakeOffscreenContext = (sseBehaviour) => {
+    const listeners = [];
+    const sent = [];
+    const sseCalls = [];
+    const verdict = {
+      verdict: "fake",
+      headline: "Pulse inconsistent: pixel-replacement pattern detected",
+      score: 0.91,
+      caveat: "Detects face-swap-style fakes: reenactment fakes keep the pulse.",
+    };
+    loadScript("offscreen.js", {
+      chrome: chromeStub({
+        runtime: {
+          onMessage: { addListener: (fn) => listeners.push(fn) },
+          sendMessage: async (m) => {
+            sent.push(rtMessage(m));
+            return {};
+          },
+          id: "test",
+        },
+      }),
+      fetch: async (url, opts) => {
+        const u = String(url);
+        if (u.endsWith("/gradio_api/info")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ named_endpoints: { "/analyze_video": {} } }),
+          };
+        }
+        if (u.endsWith("/gradio_api/call/analyze_video")) {
+          return { ok: true, status: 200, json: async () => ({ event_id: "ev-1" }) };
+        }
+        if (u.includes("/gradio_api/call/analyze_video/")) {
+          sseCalls.push(u);
+          return sseBehaviour(sseCalls.length, verdict);
+        }
+        return { ok: false, status: 500, json: async () => ({}) };
+      },
+      navigator: {},
+      window: { MediaRecorder: undefined },
+      document: { createElement: () => ({ getContext: () => null }) },
+      setInterval: () => 0,
+      setTimeout: (fn) => (fn(), 0), // collapse the 1.5 s reconnect waits
+      clearInterval: () => {},
+      clearTimeout: () => {},
+      FormData,
+      Blob,
+      TextDecoder,
+      TextEncoder,
+      console,
+    });
+    return { listeners, sent, sseCalls };
+  };
+
+  const startAnalyze = async (ctx) => {
+    const before = ctx.sent.length;
+    const startedAt = Date.now();
+    ctx.listeners[0](
+      {
+        type: "ANALYZE",
+        tabId: 7,
+        serverPath: "/tmp/gradio/truebeat/uploads/cap.webm",
+        backend: "http://127.0.0.1:9",
+      },
+      null,
+      () => {}
+    );
+    for (;;) {
+      if (ctx.sent.length > before) return ctx.sent[ctx.sent.length - 1];
+      if (Date.now() - startedAt > 5000) return null;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  };
+
+  // (a) attempt 1 dies mid-stream; attempt 2 replays the whole event.
+  {
+    const ctx = fakeOffscreenContext((attempt, verdict) => {
+      if (attempt === 1) {
+        return {
+          ok: true,
+          status: 200,
+          body: {
+            getReader: () => ({
+              read: async () => {
+                throw new TypeError("network error");
+              },
+            }),
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          getReader: () => {
+            let tick = 0;
+            return {
+              read: async () => {
+                if (tick++ === 0) {
+                  return {
+                    done: false,
+                    value: new TextEncoder().encode(
+                      `event: complete\ndata: ${JSON.stringify([JSON.stringify(verdict)])}\n\n`
+                    ),
+                  };
+                }
+                return { done: true };
+              },
+            };
+          },
+        },
+      };
+    });
+    const posted = await startAnalyze(ctx);
+    check(
+      "a dropped stream is retried and the verdict arrives",
+      posted &&
+        posted.type === "ANALYSIS_RESULT" &&
+        posted.result &&
+        posted.result.verdict === "fake" &&
+        posted.tabId === 7,
+      JSON.stringify(posted)
+    );
+    check(
+      "the retry re-GETs the exact same event URL",
+      ctx.sseCalls.length === 2 && ctx.sseCalls[0] === ctx.sseCalls[1],
+      JSON.stringify(ctx.sseCalls)
+    );
+  }
+
+  // (b) every attempt is refused; the retries run out with a readable,
+  // honest message — never Chrome's raw error text.
+  {
+    const ctx = fakeOffscreenContext(() => ({ ok: false, status: 503 }));
+    const posted = await startAnalyze(ctx);
+    check(
+      "retries exhausted produce the readable drop message",
+      posted &&
+        posted.type === "CAPTURE_ERROR" &&
+        posted.title === "Backend error" &&
+        posted.message ===
+          "The connection to your backend dropped while analysing (retried 12 times). Is `trubeat serve` still running?",
+      JSON.stringify(posted)
+    );
+    check(
+      "the readable message never carries the raw network error text",
+      posted && !/network error/i.test(posted.message || ""),
+      posted && posted.message
+    );
+  }
+
+  // (c) the backend explicitly reports an error on the stream: surfaced
+  // verbatim, not retried.
+  {
+    const ctx = fakeOffscreenContext(() => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => ({
+            done: false,
+            value: new TextEncoder().encode(
+              'data: {"error": "analysis blew up"}\n\n'
+            ),
+          }),
+        }),
+      },
+    }));
+    const posted = await startAnalyze(ctx);
+    check(
+      "an explicit backend error surfaces its own readable message",
+      posted &&
+        posted.type === "CAPTURE_ERROR" &&
+        /Backend error: "analysis blew up"/.test(posted.message || ""),
+      JSON.stringify(posted)
+    );
+    check(
+      "an explicit backend error is not retried",
+      ctx.sseCalls.length === 1,
+      String(ctx.sseCalls.length)
+    );
+  }
+
+  // (d) background relays the posted result into the overlay.
+  {
+    const listenersB = [];
+    const statesB = [];
+    loadScript("background.js", {
+      chrome: chromeStub({
+        runtime: {
+          onMessage: { addListener: (fn) => listenersB.push(fn) },
+          sendMessage: async () => ({}),
+          id: "test",
+        },
+        tabs: {
+          sendMessage: async (_tab, m) => {
+            statesB.push(rtMessage(m));
+            return {};
+          },
+          query: async () => [],
+        },
+      }),
+      fetch,
+      console,
+    });
+    listenersB[0](
+      {
+        type: "ANALYSIS_RESULT",
+        tabId: 7,
+        result: { verdict: "real", headline: "Pulse consistent: likely real", score: 0.2 },
+      },
+      null,
+      () => {}
+    );
+    await new Promise((r) => setTimeout(r, 40));
+    const last = statesB[statesB.length - 1];
+    check(
+      "background relays ANALYSIS_RESULT into the result overlay",
+      last &&
+        last.type === "TRUEBEAT_STATE" &&
+        last.payload.state === "result" &&
+        last.payload.result &&
+        last.payload.result.verdict === "real",
+      JSON.stringify(last)
+    );
+  }
 }
 
 // ------------------------------------------------ 4. static privacy audit
@@ -743,6 +1059,24 @@ section("4. static audit — no remote code, no telemetry");
     "the offscreen document performs the upload (gradio_api/upload)",
     offSource.includes("gradio_api/upload")
   );
+
+  // The 1.0.3 guards: the SSE wait lives in the offscreen document.
+  check(
+    "no SSE reader is left behind in background.js (no getReader)",
+    !bgSource.includes("getReader")
+  );
+  check(
+    "no call endpoints left in background.js (the offscreen doc owns them)",
+    !bgSource.includes("/gradio_api/call")
+  );
+  check(
+    "the offscreen document owns the ANALYZE handler",
+    offSource.includes('msg.type === "ANALYZE"')
+  );
+  check(
+    "the offscreen document owns the reconnect-resume loop",
+    offSource.includes("SSE_RETRIES")
+  );
 }
 
 // --------------------------------------------------------------- a fake backend
@@ -772,24 +1106,65 @@ section("5. a backend that answers with garbage is not a verdict");
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const port = server.address().port;
 
-  const globals = { chrome: chromeStub(), fetch, FormData, AbortController, console, URL, Blob };
-  const analyseOnBackend = loadScript("background.js", globals);
-  let out = null;
-  let err = null;
-  try {
-    out = await analyseOnBackend.call(
-      { normaliseBackend: (u) => u },
-      `http://127.0.0.1:${port}`,
-      "/tmp/gradio/fake/fake.webm"
-    );
-  } catch (e) {
-    err = e;
+  // The conversation moved to the offscreen document in 1.0.3 (a service
+  // worker would be idle-killed mid-stream): drive the shipped ANALYZE
+  // handler against the junk backend.
+  const listeners = [];
+  const sent = [];
+  loadScript("offscreen.js", {
+    chrome: chromeStub({
+      runtime: {
+        onMessage: { addListener: (fn) => listeners.push(fn) },
+        sendMessage: async (m) => {
+          sent.push(rtMessage(m));
+          return {};
+        },
+        id: "test",
+      },
+    }),
+    fetch,
+    navigator: {},
+    window: { MediaRecorder: undefined },
+    document: { createElement: () => ({ getContext: () => null }) },
+    setInterval: () => 0,
+    setTimeout: (fn) => (fn(), 0), // collapse the reconnect waits
+    clearInterval: () => {},
+    clearTimeout: () => {},
+    FormData,
+    Blob,
+    TextDecoder,
+    console,
+  });
+
+  listeners[0](
+    {
+      type: "ANALYZE",
+      tabId: 7,
+      serverPath: "/tmp/gradio/fake/fake.webm",
+      backend: `http://127.0.0.1:${port}`,
+    },
+    null,
+    () => {}
+  );
+  const startedAt = Date.now();
+  let posted = null;
+  for (;;) {
+    if (sent.length) {
+      posted = sent[sent.length - 1];
+      break;
+    }
+    if (Date.now() - startedAt > 5000) break;
+    await new Promise((r) => setTimeout(r, 25));
   }
   server.close();
   check(
-    "an unreadable backend reply does not become a verdict",
-    (out && out.verdict === "inconclusive") || err !== null,
-    JSON.stringify(out) + String(err)
+    "an unreadable backend reply becomes the honest inconclusive verdict",
+    posted &&
+      posted.type === "ANALYSIS_RESULT" &&
+      posted.result &&
+      posted.result.verdict === "inconclusive" &&
+      posted.result.headline === "Unreadable backend reply",
+    JSON.stringify(posted)
   );
 }
 

@@ -3,17 +3,17 @@
  *
  * Responsibilities (and nothing else):
  *   1. own the capture lifecycle: popup -> tabCapture stream id -> offscreen
- *      recorder -> uploaded server path;
- *   2. talk to the user's configured backend (Gradio API) about the
- *      server-side copy of the clip;
+ *      recorder -> uploaded server path -> analysis result;
+ *   2. relay the analysis to the offscreen document: both the upload POST
+ *      and the long network waits live there, because a Blob cannot survive
+ *      a chrome.runtime message (it serialises to {}) and a service worker
+ *      is idle-killed after ~30 s, which is exactly what an in-flight
+ *      analysis stream looks like while the model computes;
  *   3. push state into the in-page overlay (shadow DOM panel).
  *
- * The upload POST lives in the offscreen document: a Blob cannot survive a
- * chrome.runtime message (it serialises to {}), so the recorder uploads the
- * clip and hands this worker a path. No detection logic lives here. The
- * extension never computes a verdict: it analyses the server-side copy and
- * renders whatever the backend answers. Thresholds are never recalibrated
- * client-side.
+ * No detection logic lives here. The extension never computes a verdict:
+ * it analyses the server-side copy and renders whatever the backend
+ * answers. Thresholds are never recalibrated client-side.
  *
  * Privacy: the only network destination is the backend URL the user set in
  * Options. Captures are never persisted; the offscreen document uploads
@@ -76,6 +76,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       case "CAPTURE_UPLOADED":
         await handleCaptureUploaded(msg);
+        sendResponse({ ok: true });
+        return;
+      case "ANALYSIS_RESULT":
+        if (msg.result && typeof msg.result === "object") {
+          await pushOverlay(msg.tabId, { state: "result", result: msg.result });
+        } else {
+          await pushOverlay(msg.tabId, {
+            state: "error",
+            title: "Backend error",
+            message: "The backend stream returned an unreadable result.",
+          });
+        }
         sendResponse({ ok: true });
         return;
       case "CAPTURE_ERROR":
@@ -220,112 +232,29 @@ async function handleCaptureUploaded(msg) {
     message: "Analysing on your backend…",
   });
 
-  let result;
+  // The analysis wait must not live in the service worker: a stream that
+  // sits idle while the model computes looks like idleness to the ~30 s
+  // worker idle leash, and a mid-analysis drop surfaced Chrome's raw
+  // "network error". Hand the server-side copy to the offscreen document,
+  // which owns the connection and reconnect-resume; the verdict comes
+  // back as an ANALYSIS_RESULT message.
   try {
-    result = await analyseOnBackend(settings.backend, msg.serverPath);
+    await ensureOffscreen();
+    await chrome.runtime.sendMessage({
+      type: "ANALYZE",
+      tabId,
+      serverPath: msg.serverPath,
+      backend: settings.backend,
+    });
   } catch (err) {
     await pushOverlay(tabId, {
       state: "error",
       title: "Backend error",
-      message: String((err && err.message) || err),
+      message:
+        "Could not hand the clip over for analysis: " +
+        String((err && err.message) || err),
     });
-    return;
   }
-  await pushOverlay(tabId, { state: "result", result });
-}
-
-/**
- * Analyse the uploaded copy of the clip and read the verdict back.
- * The offscreen document POSTs the bytes to /gradio_api/upload and hands
- * this function the returned server path; a Blob cannot cross a runtime
- * message, so no upload happens here. Mirrors the flow verified against a
- * local `trubeat serve`:
- *   GET  /gradio_api/info                        -> named_endpoints
- *   POST /gradio_api/call/<api_name>             -> {"event_id": "..."}
- *   GET  /gradio_api/call/<api_name>/<event_id>  (SSE) -> data: ["<json>"]
- */
-async function analyseOnBackend(base, serverPath) {
-  const backend = normaliseBackend(base);
-
-  // 1. discover the endpoint (the user may point at any TrueBeat backend)
-  const infoRes = await fetch(backend + "/gradio_api/info", { cache: "no-store" });
-  if (!infoRes.ok) {
-    throw new Error(
-      `The backend at ${backend} answered HTTP ${infoRes.status}. ` +
-        "Is `trubeat serve` running?"
-    );
-  }
-  const info = await infoRes.json();
-  const endpoints = Object.keys((info && info.named_endpoints) || {});
-  const apiName = endpoints.includes("/analyze_video")
-    ? "/analyze_video"
-    : endpoints.find((e) => e.endsWith("analyze_video"));
-  if (!apiName) {
-    throw new Error(
-      "This backend does not expose the analyze_video endpoint " +
-        `(found: ${endpoints.join(", ") || "none"}).`
-    );
-  }
-
-  // 2. start the analysis on the server-side copy
-  const callRes = await fetch(backend + "/gradio_api/call" + apiName, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      data: [{ path: serverPath, meta: { _type: "gradio.FileData" } }],
-    }),
-  });
-  if (!callRes.ok) {
-    throw new Error(`The backend rejected the request (HTTP ${callRes.status}).`);
-  }
-  const { event_id: eventId } = await callRes.json();
-  if (!eventId) throw new Error("The backend returned no event id.");
-
-  // 3. read the SSE stream until the "complete" event
-  const sseRes = await fetch(
-    backend + "/gradio_api/call" + apiName + "/" + eventId
-  );
-  if (!sseRes.ok || !sseRes.body) {
-    throw new Error(`Could not read the result stream (HTTP ${sseRes.status}).`);
-  }
-  const reader = sseRes.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(payload);
-      } catch (_) {
-        continue;
-      }
-      if (Array.isArray(parsed)) {
-        // Gradio wraps the return value: ["<json string>"] -> parse the inner one
-        const inner = parsed[0];
-        if (typeof inner === "string") {
-          try {
-            return JSON.parse(inner);
-          } catch (_) {
-            return { verdict: "inconclusive", headline: "Unreadable backend reply" };
-          }
-        }
-        return inner;
-      }
-      if (parsed && parsed.error) {
-        throw new Error("Backend error: " + JSON.stringify(parsed.error));
-      }
-    }
-  }
-  throw new Error("The backend stream ended without a result.");
 }
 
 // ---------------------------------------------------------------- overlay
